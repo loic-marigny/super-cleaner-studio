@@ -43,11 +43,11 @@ function WorkspacePage() {
   const avgProgress = Math.round(data.columns.reduce((s, c) => s + c.progress, 0) / data.columns.length);
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Toolbar */}
       <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-raised)]/80 backdrop-blur">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:px-5">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--color-secondary)] text-[var(--color-brown-dark)] bevel">
                 <FileSpreadsheet className="h-4 w-4" />
@@ -56,15 +56,15 @@ function WorkspacePage() {
                 <div className="truncate text-[13px] font-semibold text-[var(--color-brown-dark)]">
                   clients_2024_export.xlsx
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-[var(--color-brown)]">
-                  <span className="tabular-nums">{data.rows.length} lignes · {data.columns.length} colonnes</span>
-                  <span>·</span>
-                  <span>418 Ko</span>
+                <div className="flex min-w-0 items-center gap-2 text-[11px] text-[var(--color-brown)]">
+                  <span className="truncate tabular-nums">{data.rows.length} lignes · {data.columns.length} colonnes</span>
+                  <span className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline">418 Ko</span>
                 </div>
               </div>
             </div>
-            <div className="mx-2 hidden h-6 w-px bg-[var(--color-border)] md:block" />
-            <div className="hidden md:block">
+            <div className="mx-2 hidden h-6 w-px shrink-0 bg-[var(--color-border)] md:block" />
+            <div className="hidden min-w-0 md:block">
               <Stepper
                 currentIndex={1}
                 steps={[
@@ -76,6 +76,7 @@ function WorkspacePage() {
               />
             </div>
           </div>
+
 
           <div className="flex items-center gap-2">
             <div className="hidden lg:flex items-center gap-2">
