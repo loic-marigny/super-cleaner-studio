@@ -114,7 +114,7 @@ function WorkspacePage() {
         </div>
 
         {/* Secondary bar */}
-        <div className="flex items-center gap-2 border-t border-[var(--color-border)] px-4 py-1.5 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] px-4 py-1.5 sm:px-5">
           <div className="flex items-center gap-1">
             <SpButton size="icon" variant="ghost" title="Rechercher"><Search className="h-4 w-4" /></SpButton>
             <SpButton size="icon" variant="ghost" title="Filtrer"><Filter className="h-4 w-4" /></SpButton>
@@ -126,13 +126,13 @@ function WorkspacePage() {
 
           <div className="flex-1" />
 
-          <div className="hidden md:flex items-center gap-3">
-            <span className="text-[11px] text-[var(--color-brown)]">Progression globale</span>
+          <div className="hidden md:flex min-w-0 items-center gap-3">
+            <span className="hidden text-[11px] text-[var(--color-brown)] lg:inline">Progression globale</span>
             <ProgressBar
               value={avgProgress}
               size="xs"
               tone={avgProgress >= 100 ? "success" : "accent"}
-              className="w-40"
+              className="w-24 lg:w-40"
               showValue
             />
           </div>
@@ -140,12 +140,13 @@ function WorkspacePage() {
       </div>
 
       {/* Main workspace */}
-      <div className="flex flex-1 flex-col gap-3 p-3 sm:p-4">
-        <div className="flex-1 min-h-[520px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
+        <div className="min-h-0 flex-1 h-[clamp(240px,52vh,640px)]">
           <Spreadsheet columns={data.columns} rows={data.rows} />
         </div>
 
         {/* Rules — collapsible, closed by default */}
+
         <CollapsiblePanel
           title="Règles de nettoyage"
           subtitle="Choisissez les comportements à appliquer à l'ensemble du fichier."
