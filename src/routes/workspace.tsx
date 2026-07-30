@@ -78,8 +78,8 @@ function WorkspacePage() {
           </div>
 
 
-          <div className="flex items-center gap-2">
-            <div className="hidden lg:flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="hidden xl:flex items-center gap-2">
               <StatusBadge tone={totalIssues > 0 ? "warning" : "success"}>
                 {totalIssues} problème{totalIssues > 1 ? "s" : ""}
               </StatusBadge>
@@ -93,12 +93,15 @@ function WorkspacePage() {
               size="sm"
               leadingIcon={<AlertTriangle className="h-4 w-4" />}
               onClick={() => setIssuesOpen(true)}
+              title="Problèmes détectés"
             >
-              Problèmes détectés
+              <span className="hidden lg:inline">Problèmes détectés</span>
+              <span className="lg:hidden">Problèmes</span>
               <span className="ml-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--color-warning)] px-1 text-[10px] font-bold text-[var(--color-warning-foreground)]">
                 {totalIssues}
               </span>
             </SpButton>
+
             <SpButton
               variant="primary"
               size="sm"
