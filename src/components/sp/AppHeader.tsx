@@ -28,6 +28,7 @@ export function AppHeader() {
                 <Link
                   key={n.to}
                   to={n.to}
+                  title={n.label}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[12.5px] font-medium transition-colors",
                     active
@@ -35,9 +36,10 @@ export function AppHeader() {
                       : "text-[var(--color-brown)] hover:text-[var(--color-brown-dark)] hover:bg-[var(--color-surface-raised)]/60",
                   )}
                 >
-                  <n.icon className="h-3.5 w-3.5" />
-                  {n.label}
+                  <n.icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className={cn(active ? "inline" : "hidden lg:inline")}>{n.label}</span>
                 </Link>
+
               );
             })}
           </nav>

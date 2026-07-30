@@ -43,11 +43,11 @@ function WorkspacePage() {
   const avgProgress = Math.round(data.columns.reduce((s, c) => s + c.progress, 0) / data.columns.length);
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Toolbar */}
       <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-raised)]/80 backdrop-blur">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:px-5">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--color-secondary)] text-[var(--color-brown-dark)] bevel">
                 <FileSpreadsheet className="h-4 w-4" />
@@ -56,15 +56,15 @@ function WorkspacePage() {
                 <div className="truncate text-[13px] font-semibold text-[var(--color-brown-dark)]">
                   clients_2024_export.xlsx
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-[var(--color-brown)]">
-                  <span className="tabular-nums">{data.rows.length} lignes · {data.columns.length} colonnes</span>
-                  <span>·</span>
-                  <span>418 Ko</span>
+                <div className="flex min-w-0 items-center gap-2 text-[11px] text-[var(--color-brown)]">
+                  <span className="truncate tabular-nums">{data.rows.length} lignes · {data.columns.length} colonnes</span>
+                  <span className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline">418 Ko</span>
                 </div>
               </div>
             </div>
-            <div className="mx-2 hidden h-6 w-px bg-[var(--color-border)] md:block" />
-            <div className="hidden md:block">
+            <div className="mx-2 hidden h-6 w-px shrink-0 bg-[var(--color-border)] md:block" />
+            <div className="hidden min-w-0 md:block">
               <Stepper
                 currentIndex={1}
                 steps={[
@@ -77,8 +77,9 @@ function WorkspacePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden lg:flex items-center gap-2">
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="hidden xl:flex items-center gap-2">
               <StatusBadge tone={totalIssues > 0 ? "warning" : "success"}>
                 {totalIssues} problème{totalIssues > 1 ? "s" : ""}
               </StatusBadge>
@@ -92,12 +93,15 @@ function WorkspacePage() {
               size="sm"
               leadingIcon={<AlertTriangle className="h-4 w-4" />}
               onClick={() => setIssuesOpen(true)}
+              title="Problèmes détectés"
             >
-              Problèmes détectés
+              <span className="hidden lg:inline">Problèmes détectés</span>
+              <span className="lg:hidden">Problèmes</span>
               <span className="ml-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--color-warning)] px-1 text-[10px] font-bold text-[var(--color-warning-foreground)]">
                 {totalIssues}
               </span>
             </SpButton>
+
             <SpButton
               variant="primary"
               size="sm"
@@ -110,7 +114,7 @@ function WorkspacePage() {
         </div>
 
         {/* Secondary bar */}
-        <div className="flex items-center gap-2 border-t border-[var(--color-border)] px-4 py-1.5 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] px-4 py-1.5 sm:px-5">
           <div className="flex items-center gap-1">
             <SpButton size="icon" variant="ghost" title="Rechercher"><Search className="h-4 w-4" /></SpButton>
             <SpButton size="icon" variant="ghost" title="Filtrer"><Filter className="h-4 w-4" /></SpButton>
@@ -122,13 +126,13 @@ function WorkspacePage() {
 
           <div className="flex-1" />
 
-          <div className="hidden md:flex items-center gap-3">
-            <span className="text-[11px] text-[var(--color-brown)]">Progression globale</span>
+          <div className="hidden md:flex min-w-0 items-center gap-3">
+            <span className="hidden text-[11px] text-[var(--color-brown)] lg:inline">Progression globale</span>
             <ProgressBar
               value={avgProgress}
               size="xs"
               tone={avgProgress >= 100 ? "success" : "accent"}
-              className="w-40"
+              className="w-24 lg:w-40"
               showValue
             />
           </div>
@@ -136,12 +140,13 @@ function WorkspacePage() {
       </div>
 
       {/* Main workspace */}
-      <div className="flex flex-1 flex-col gap-3 p-3 sm:p-4">
-        <div className="flex-1 min-h-[520px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
+        <div className="min-h-0 flex-1 h-[clamp(240px,52vh,640px)]">
           <Spreadsheet columns={data.columns} rows={data.rows} />
         </div>
 
         {/* Rules — collapsible, closed by default */}
+
         <CollapsiblePanel
           title="Règles de nettoyage"
           subtitle="Choisissez les comportements à appliquer à l'ensemble du fichier."
