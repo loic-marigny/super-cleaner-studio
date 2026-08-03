@@ -1029,7 +1029,14 @@ function analyzeDataset(
     const missingRate = rowCount === 0 ? 0 : missingCount / rowCount;
     const completenessRate = rowCount === 0 ? 1 : presentCount / rowCount;
     const isSparse = missingRate > 0.8;
-    const isEmpty = missingCount === rowCount;
+    const isZeroOnly =
+      presentCount > 0 &&
+      values.every((value) => {
+        if (isMissingValue(value)) return true;
+        const numeric = parseNumeric(value);
+        return numeric === 0;
+      });
+    const isEmpty = missingCount === rowCount || isZeroOnly;
 
     if (incompatibleRows.size > 0) {
       invalidCells.set(header, incompatibleRows);
@@ -1094,7 +1101,7 @@ function analyzeDataset(
       completenessRate,
       distinctCount: distinct.size,
       uniquenessRate: rowCount === 0 ? 0 : distinct.size / rowCount,
-      nullishOnly: isEmpty,
+      nullishOnly: missingCount === rowCount,
       isSparse,
       isEmpty,
       choiceOptions: isChoiceType(majorityType) ? (findChoiceType(majorityType, customTypes)?.options ?? []) : undefined,
