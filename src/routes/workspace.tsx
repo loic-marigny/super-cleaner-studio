@@ -77,8 +77,8 @@ function buildIssuePreview(issue: IssueSummary, analysis: NonNullable<ReturnType
       }
 
       return {
-        sourceRowIndex: rowIndex,
-        rowNumber: rowIndex + 1,
+        sourceRowIndex: analysis.previewOffset + rowIndex,
+        rowNumber: analysis.previewOffset + rowIndex + 1,
         cells: orderedHeaders.map((header) => ({
           key: header,
           value: row[header]?.value ?? "",
@@ -210,6 +210,11 @@ function WorkspacePage() {
       };
     });
   }, [workspace.analysis]);
+
+  const previewStart = analysis ? analysis.previewOffset + 1 : 0;
+  const previewEnd = analysis ? Math.min(analysis.previewOffset + analysis.previewRows.length, analysis.rowCount) : 0;
+  const previewPageCount = analysis ? Math.max(1, Math.ceil(analysis.rowCount / analysis.previewLimit)) : 1;
+  const currentPreviewPage = workspace.previewPage + 1;
 
   const title = workspace.source?.fileName ?? t("workspace.noFileLoaded");
   const analysis = workspace.analysis;
@@ -690,59 +695,99 @@ function WorkspacePage() {
         ) : (
           <>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-h-0 h-[clamp(280px,56vh,680px)]">
-                <Spreadsheet
-                  columns={spreadsheetColumns}
-                  rows={analysis.previewRows}
-                  customTypes={workspace.customTypes}
-                  onColumnTypeChange={workspace.setColumnType}
-                  onColumnSpreadTrackingChange={workspace.setColumnSpreadTracking}
-                  onColumnNullTrackingChange={workspace.setColumnNullTracking}
-                  onNormalizeBooleanColumn={(key) =>
-                    workspace.applyOperation({
-                      id: `normalize-bool-${key}`,
-                      kind: "normalize-boolean-values",
-                      label: t("workspace.table.normalizeBooleanTitle"),
-                      columnKey: key,
-                    })
-                  }
-                  onNormalizeDateColumn={(key) =>
-                    workspace.applyOperation({
-                      id: `normalize-date-${key}`,
-                      kind: "normalize-date-values",
-                      label: t("workspace.table.normalizeDateTitle"),
-                      columnKey: key,
-                    })
-                  }
-                  onClearColumnErrors={(key) =>
-                    workspace.applyOperation({
-                      id: `nullify-errors-${key}`,
-                      kind: "nullify-incompatible",
-                      label: t("workspace.table.clearErrors"),
-                      columnKey: key,
-                    })
-                  }
-                  onRemoveRow={(rowIndex) =>
-                    workspace.applyOperation({
-                      id: `remove-row-${rowIndex}`,
-                      kind: "remove-row",
-                      label: t("workspace.table.removeRow"),
-                      rowIndex,
-                    })
-                  }
-                  onPromoteRowToHeader={(rowIndex) =>
-                    workspace.applyOperation({
-                      id: `promote-row-${rowIndex}`,
-                      kind: "promote-row-to-header",
-                      label: t("workspace.table.useAsHeaders"),
-                      rowIndex,
-                    })
-                  }
-                  editingCell={editingCell}
-                  onStartEditCell={(rowIndex, columnKey) => openCellEditor(rowIndex, columnKey)}
-                  onSubmitEditCell={applyCellEdit}
-                  onCancelEditCell={() => setEditingCell(null)}
-                />
+              <div className="flex min-h-0 flex-col gap-2">
+                <div className="min-h-0 h-[clamp(280px,56vh,680px)]">
+                  <Spreadsheet
+                    columns={spreadsheetColumns}
+                    rows={analysis.previewRows}
+                    customTypes={workspace.customTypes}
+                    onColumnTypeChange={workspace.setColumnType}
+                    onColumnSpreadTrackingChange={workspace.setColumnSpreadTracking}
+                    onColumnNullTrackingChange={workspace.setColumnNullTracking}
+                    onNormalizeBooleanColumn={(key) =>
+                      workspace.applyOperation({
+                        id: `normalize-bool-${key}`,
+                        kind: "normalize-boolean-values",
+                        label: t("workspace.table.normalizeBooleanTitle"),
+                        columnKey: key,
+                      })
+                    }
+                    onNormalizeDateColumn={(key) =>
+                      workspace.applyOperation({
+                        id: `normalize-date-${key}`,
+                        kind: "normalize-date-values",
+                        label: t("workspace.table.normalizeDateTitle"),
+                        columnKey: key,
+                      })
+                    }
+                    onClearColumnErrors={(key) =>
+                      workspace.applyOperation({
+                        id: `nullify-errors-${key}`,
+                        kind: "nullify-incompatible",
+                        label: t("workspace.table.clearErrors"),
+                        columnKey: key,
+                      })
+                    }
+                    onRemoveColumn={(key) =>
+                      workspace.applyOperation({
+                        id: `remove-column-${key}`,
+                        kind: "remove-column",
+                        label: t("workspace.table.removeColumn"),
+                        columnKey: key,
+                      })
+                    }
+                    onRemoveRow={(rowIndex) =>
+                      workspace.applyOperation({
+                        id: `remove-row-${rowIndex}`,
+                        kind: "remove-row",
+                        label: t("workspace.table.removeRow"),
+                        rowIndex,
+                      })
+                    }
+                    onPromoteRowToHeader={(rowIndex) =>
+                      workspace.applyOperation({
+                        id: `promote-row-${rowIndex}`,
+                        kind: "promote-row-to-header",
+                        label: t("workspace.table.useAsHeaders"),
+                        rowIndex,
+                      })
+                    }
+                    editingCell={editingCell}
+                    onStartEditCell={(rowIndex, columnKey) => openCellEditor(rowIndex, columnKey)}
+                    onSubmitEditCell={applyCellEdit}
+                    onCancelEditCell={() => setEditingCell(null)}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2 text-[12px] text-[var(--color-brown)]">
+                  <span>
+                    {t("workspace.table.previewRange", {
+                      start: previewStart,
+                      end: previewEnd,
+                      total: analysis.rowCount,
+                    })}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <SpButton
+                      size="sm"
+                      variant="ghost"
+                      disabled={workspace.previewPage === 0}
+                      onClick={() => workspace.setPreviewPage(workspace.previewPage - 1)}
+                    >
+                      {t("workspace.table.previousHundred")}
+                    </SpButton>
+                    <span className="text-[11px] text-[var(--color-brown)]/80">
+                      {t("workspace.table.previewPage", { current: currentPreviewPage, total: previewPageCount })}
+                    </span>
+                    <SpButton
+                      size="sm"
+                      variant="ghost"
+                      disabled={workspace.previewPage >= previewPageCount - 1}
+                      onClick={() => workspace.setPreviewPage(workspace.previewPage + 1)}
+                    >
+                      {t("workspace.table.nextHundred")}
+                    </SpButton>
+                  </div>
+                </div>
               </div>
               <aside className="space-y-3">
                 <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">

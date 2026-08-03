@@ -198,6 +198,7 @@ export function Spreadsheet({
   onNormalizeBooleanColumn,
   onNormalizeDateColumn,
   onClearColumnErrors,
+  onRemoveColumn,
   onRemoveRow,
   onPromoteRowToHeader,
   editingCell,
@@ -215,6 +216,7 @@ export function Spreadsheet({
   onNormalizeBooleanColumn?: (key: string) => void;
   onNormalizeDateColumn?: (key: string) => void;
   onClearColumnErrors?: (key: string) => void;
+  onRemoveColumn?: (key: string) => void;
   onRemoveRow?: (rowIndex: number) => void;
   onPromoteRowToHeader?: (rowIndex: number) => void;
   editingCell?: { rowIndex: number; columnKey: string } | null;
@@ -267,7 +269,7 @@ export function Spreadsheet({
     type;
 
   const getTypeIcon = (type: ColumnType) => builtinTypeIcon[type as keyof typeof builtinTypeIcon] ?? <Type className="h-3 w-3" />;
-  const headerHeight = controlsVisible ? 132 : 76;
+  const headerHeight = controlsVisible ? 140 : 84;
 
   const updateFilter = (key: string, patch: Partial<ColumnFilterState>) => {
     setColumnFilters((current) => ({
@@ -365,9 +367,17 @@ export function Spreadsheet({
             )}
             style={{ height: headerHeight }}
           >
+            <button
+              type="button"
+              onClick={() => onRemoveColumn?.(column.key)}
+              className="absolute top-1.5 right-2 z-30 flex h-5 w-5 items-center justify-center rounded border border-[color-mix(in_oklab,var(--color-destructive)_38%,transparent)] bg-[color-mix(in_oklab,var(--color-destructive)_10%,var(--color-surface-raised))] text-[var(--color-destructive)] shadow-sm hover:bg-[color-mix(in_oklab,var(--color-destructive)_16%,var(--color-surface-raised))]"
+              title={t("workspace.table.removeColumnTitle", { column: column.name })}
+            >
+              <X className="h-3 w-3" />
+            </button>
             <div
               className={cn(
-                "rounded-md",
+                "rounded-md pr-7",
                 !controlsVisible &&
                   filterActive &&
                   "border border-[var(--color-accent)]/45 bg-[color-mix(in_oklab,var(--color-accent)_8%,var(--color-surface-raised))] px-1.5 py-1",
@@ -381,14 +391,6 @@ export function Spreadsheet({
                   {column.name}
                 </span>
               </div>
-              {column.issues > 0 ? (
-                <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-[var(--color-warning)]">
-                  <AlertTriangle className="h-3 w-3" />
-                  {column.issues}
-                </span>
-              ) : column.progress >= 100 ? (
-                <CheckCircle2 className="h-3 w-3 shrink-0 text-[var(--color-success)]" />
-              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -424,6 +426,18 @@ export function Spreadsheet({
                 tone={column.issues > 0 ? "warning" : column.progress >= 100 ? "success" : "accent"}
                 className="w-16 shrink-0"
               />
+            </div>
+            <div className="mt-1 flex min-h-[14px] items-center justify-end">
+              {column.issues > 0 ? (
+                <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-[var(--color-warning)]">
+                  <AlertTriangle className="h-3 w-3" />
+                  {column.issues}
+                </span>
+              ) : column.progress >= 100 ? (
+                <span className="flex shrink-0 items-center text-[var(--color-success)]">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                </span>
+              ) : null}
             </div>
             </div>
 

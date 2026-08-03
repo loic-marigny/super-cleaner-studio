@@ -2,11 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { withBase } from "./app-base";
 import { translateGlobal } from "./i18n";
 
 export type BuiltinColumnType =
@@ -135,6 +137,7 @@ export type OperationKind =
   | "remove-empty-rows"
   | "remove-sparse-rows"
   | "remove-sparse-column"
+  | "remove-column"
   | "remove-row"
   | "promote-row-to-header"
   | "update-cell"
@@ -172,6 +175,8 @@ export interface IssueSummary {
 export interface AnalysisSummary {
   rowCount: number;
   columnCount: number;
+  previewOffset: number;
+  previewLimit: number;
   emptyRowCount: number;
   sparseRowCount: number;
   sparseColumnCount: number;
@@ -211,6 +216,8 @@ interface WorkspaceState {
   previewDataset: Dataset | null;
   dateFormat: DateFormat;
   decimalSeparator: DecimalSeparator;
+  removeEmptyColumnsOnImport: boolean;
+  previewPage: number;
   customTypes: CustomColumnTypeDefinition[];
   canUndo: boolean;
   undoCount: number;
@@ -222,6 +229,8 @@ interface WorkspaceState {
   setColumnNullTracking: (key: string, enabled: boolean) => void;
   setDateFormat: (format: DateFormat) => void;
   setDecimalSeparator: (separator: DecimalSeparator) => void;
+  setRemoveEmptyColumnsOnImport: (enabled: boolean) => void;
+  setPreviewPage: (page: number) => void;
   createChoiceType: (name: string, options: string[]) => void;
   createStructuredStringType: (name: string, segments: StructuredStringSegment[]) => void;
   buildPreview: (operation: CleaningOperation) => ActionImpact | null;
@@ -240,6 +249,28 @@ const UNDO_LIMIT = 5;
 const MISSING_TEXT = new Set(["", "n/a", "na", "null", "none", "-"]);
 const UTF8_BOM = "\uFEFF";
 const NO_PRIMARY_KEY = "__none__";
+const REMOVE_EMPTY_COLUMNS_PREF_KEY = "super-cleaner.remove-empty-columns-on-import";
+const NORMALIZED_SPACE_REGEX = /[\u00A0\u1680\u2000-\u200B\u202F\u205F\u2060\u3000]/g;
+
+function readStoredBooleanPreference(key: string, fallback: boolean) {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value == null) return fallback;
+    return value === "true";
+  } catch {
+    return fallback;
+  }
+}
+
+function persistBooleanPreference(key: string, value: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Ignore storage failures and keep the in-memory preference.
+  }
+}
 
 function isChoiceType(type: ColumnType): type is ChoiceTypeId {
   return type.startsWith("choice:");
@@ -283,7 +314,66 @@ function createOperationId() {
 }
 
 function normalizeCell(raw: string) {
-  return raw.replace(/\r/g, "");
+  return raw.replace(/\r/g, "").replace(NORMALIZED_SPACE_REGEX, " ");
+}
+
+function hasSignature(bytes: Uint8Array, signature: number[]) {
+  return signature.every((value, index) => bytes[index] === value);
+}
+
+function detectUtf16Encoding(bytes: Uint8Array) {
+  const sampleLength = Math.min(bytes.length - (bytes.length % 2), 256);
+  if (sampleLength < 4) return null;
+
+  let evenZeroes = 0;
+  let oddZeroes = 0;
+  let pairs = 0;
+
+  for (let index = 0; index < sampleLength; index += 2) {
+    if (bytes[index] === 0) evenZeroes += 1;
+    if (bytes[index + 1] === 0) oddZeroes += 1;
+    pairs += 1;
+  }
+
+  if (pairs === 0) return null;
+
+  const evenRatio = evenZeroes / pairs;
+  const oddRatio = oddZeroes / pairs;
+
+  if (oddRatio > 0.3 && evenRatio < 0.1) return "utf-16le";
+  if (evenRatio > 0.3 && oddRatio < 0.1) return "utf-16be";
+  return null;
+}
+
+function sanitizeImportedText(text: string) {
+  return text.replace(/^\uFEFF/, "").replace(NORMALIZED_SPACE_REGEX, " ");
+}
+
+function decodeUploadedCsv(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+
+  if (hasSignature(bytes, [0xef, 0xbb, 0xbf])) {
+    return sanitizeImportedText(new TextDecoder("utf-8").decode(bytes.subarray(3)));
+  }
+
+  if (hasSignature(bytes, [0xff, 0xfe])) {
+    return sanitizeImportedText(new TextDecoder("utf-16le").decode(bytes.subarray(2)));
+  }
+
+  if (hasSignature(bytes, [0xfe, 0xff])) {
+    return sanitizeImportedText(new TextDecoder("utf-16be").decode(bytes.subarray(2)));
+  }
+
+  const inferredUtf16 = detectUtf16Encoding(bytes);
+  if (inferredUtf16) {
+    return sanitizeImportedText(new TextDecoder(inferredUtf16).decode(bytes));
+  }
+
+  try {
+    return sanitizeImportedText(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    return sanitizeImportedText(new TextDecoder("windows-1252").decode(bytes));
+  }
 }
 
 function isMissingValue(value: string) {
@@ -810,6 +900,7 @@ function analyzeDataset(
   nullTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
+  previewPage = 0,
 ): AnalysisSummary {
   const { headers, rows } = dataset;
   const rowCount = rows.length;
@@ -1262,10 +1353,12 @@ function analyzeDataset(
     });
   }
 
-  const previewRows = rows.slice(0, PREVIEW_LIMIT).map((row, rowIndex) =>
+  const previewOffset = Math.max(0, previewPage) * PREVIEW_LIMIT;
+  const previewRows = rows.slice(previewOffset, previewOffset + PREVIEW_LIMIT).map((row, previewIndex) =>
     Object.fromEntries(
       headers.map((header) => {
         const value = row[header] ?? "";
+        const rowIndex = previewOffset + previewIndex;
         const column = columns.find((entry) => entry.key === header);
         const displayValue =
           column && (column.type === "date" || column.type === "datetime")
@@ -1291,6 +1384,8 @@ function analyzeDataset(
   return {
     rowCount,
     columnCount,
+    previewOffset,
+    previewLimit: PREVIEW_LIMIT,
     emptyRowCount: emptyRowIndices.size,
     sparseRowCount: sparseRowIndices.size,
     sparseColumnCount: columns.filter((column) => column.isSparse).length,
@@ -1438,7 +1533,8 @@ function executeOperation(
         },
       };
     }
-    case "remove-sparse-column": {
+    case "remove-sparse-column":
+    case "remove-column": {
       if (!operation.columnKey) return { dataset, impact: baseImpact };
       const nextHeaders = headers.filter((header) => header !== operation.columnKey);
       const nextRows = rows.map((row) =>
@@ -1648,6 +1744,7 @@ function deriveDataset(
   nullTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
+  previewPage: number,
 ): DerivedWorkspace {
   let currentDataset = baseDataset;
   let currentAnalysis = analyzeDataset(
@@ -1659,6 +1756,7 @@ function deriveDataset(
     nullTracking,
     dateFormat,
     decimalSeparator,
+    previewPage,
   );
 
   operations.forEach((operation) => {
@@ -1672,6 +1770,7 @@ function deriveDataset(
       nullTracking,
       dateFormat,
       decimalSeparator,
+      previewPage,
     );
   });
 
@@ -1711,8 +1810,20 @@ function buildAnomalyReportDataset(
       valueFor: (header) => String(columnsByKey.get(header)?.missingCount ?? 0),
     },
     {
+      indicator: "quasi_vide",
+      valueFor: (header) => ((columnsByKey.get(header)?.isSparse ?? false) ? "oui" : "non"),
+    },
+    {
+      indicator: "vide",
+      valueFor: (header) => ((columnsByKey.get(header)?.isEmpty ?? false) ? "oui" : "non"),
+    },
+    {
       indicator: "type_releve",
       valueFor: (header) => formatType(columnsByKey.get(header)?.type ?? "text", customTypes),
+    },
+    {
+      indicator: "taux_unicite",
+      valueFor: (header) => formatRate(columnsByKey.get(header)?.uniquenessRate ?? 0),
     },
     {
       indicator: "nombre_erreurs_type",
@@ -1742,6 +1853,19 @@ function buildAnomalyReportDataset(
   };
 }
 
+function removeEmptyColumnsFromDataset(dataset: Dataset, analysis: AnalysisSummary) {
+  const removableHeaders = analysis.columns.filter((column) => column.isEmpty).map((column) => column.key);
+  if (removableHeaders.length === 0) {
+    return dataset;
+  }
+
+  const removableSet = new Set(removableHeaders);
+  const headers = dataset.headers.filter((header) => !removableSet.has(header));
+  const rows = dataset.rows.map((row) => Object.fromEntries(headers.map((header) => [header, row[header] ?? ""])));
+
+  return { headers, rows };
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<WorkspaceState["status"]>("idle");
   const [message, setMessage] = useState("Importez un CSV pour lancer l'analyse locale.");
@@ -1755,8 +1879,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [columnNullTracking, setColumnNullTrackingState] = useState<Partial<Record<string, boolean>>>({});
   const [dateFormat, setDateFormat] = useState<DateFormat>("yyyy-mm-dd");
   const [decimalSeparator, setDecimalSeparator] = useState<DecimalSeparator>("both");
+  const [removeEmptyColumnsOnImport, setRemoveEmptyColumnsOnImportState] = useState<boolean>(() =>
+    readStoredBooleanPreference(REMOVE_EMPTY_COLUMNS_PREF_KEY, true),
+  );
+  const [previewPage, setPreviewPageState] = useState(0);
   const [customTypes, setCustomTypes] = useState<CustomColumnTypeDefinition[]>([]);
   const lastDerivedRef = useRef<DerivedWorkspace | null>(null);
+
+  useEffect(() => {
+    persistBooleanPreference(REMOVE_EMPTY_COLUMNS_PREF_KEY, removeEmptyColumnsOnImport);
+  }, [removeEmptyColumnsOnImport]);
 
   const derived = useMemo(() => {
     if (!committedDataset) return null;
@@ -1770,10 +1902,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         columnNullTracking,
         dateFormat,
         decimalSeparator,
+        previewPage,
       );
   lastDerivedRef.current = result;
   return result;
-  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator]);
+  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator, previewPage]);
+
+  useEffect(() => {
+    if (!derived) return;
+    const maxPage = Math.max(0, Math.ceil(derived.analysis.rowCount / PREVIEW_LIMIT) - 1);
+    if (previewPage > maxPage) {
+      setPreviewPageState(maxPage);
+    }
+  }, [derived, previewPage]);
 
   const resetWorkspace = useCallback(() => {
     setStatus("idle");
@@ -1787,6 +1928,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setColumnSpreadTrackingState({});
     setColumnNullTrackingState({});
     setDecimalSeparator("both");
+    setPreviewPageState(0);
     setCustomTypes([]);
     lastDerivedRef.current = null;
   }, []);
@@ -1803,18 +1945,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await Promise.resolve();
 
     setProgress(80);
-    const analysis = analyzeDataset(dataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
-    setCommittedDataset(dataset);
+    const initialAnalysis = analyzeDataset(dataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
+    const nextDataset = removeEmptyColumnsOnImport ? removeEmptyColumnsFromDataset(dataset, initialAnalysis) : dataset;
+    const analysis =
+      nextDataset === dataset
+        ? initialAnalysis
+        : analyzeDataset(nextDataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
+    setCommittedDataset(nextDataset);
     setUndoableOperations([]);
     setSelectedPrimaryKey(analysis.selectedPrimaryKey);
     setColumnTypeOverrides({});
     setColumnSpreadTrackingState({});
     setColumnNullTrackingState({});
+    setPreviewPageState(0);
     setSource({ ...meta, separator });
     setStatus("ready");
     setProgress(100);
     setMessage(translateGlobal("workspace.engine.status.ready"));
-  }, [customTypes, dateFormat, decimalSeparator]);
+  }, [customTypes, dateFormat, decimalSeparator, removeEmptyColumnsOnImport]);
 
   const importFile = useCallback(
     async (file: File) => {
@@ -1835,7 +1983,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setStatus("importing");
         setProgress(5);
         setMessage(translateGlobal("workspace.engine.status.reading"));
-        const text = await file.text();
+        const text = decodeUploadedCsv(await file.arrayBuffer());
         await hydrateFromText(text, {
           fileName: file.name,
           fileSize: file.size,
@@ -1852,7 +2000,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const loadDemo = useCallback(async () => {
     try {
-      const response = await fetch("/super-cleaner-demo.csv", { cache: "no-store" });
+      const response = await fetch(withBase("super-cleaner-demo.csv"), { cache: "no-store" });
       if (!response.ok) {
         throw new Error(translateGlobal("workspace.engine.errors.demoFailed"));
       }
@@ -1884,11 +2032,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         columnNullTracking,
         dateFormat,
         decimalSeparator,
+        previewPage,
       );
       const nextBase = executeOperation(baseDataset, baseAnalysis, oldest, customTypes).dataset;
       return { baseDataset: nextBase, operations: rest };
     },
-    [columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator],
+    [columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator, previewPage],
   );
 
   const buildPreview = useCallback(
@@ -1963,6 +2112,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const setColumnNullTracking = useCallback((key: string, enabled: boolean) => {
     setColumnNullTrackingState((current) => ({ ...current, [key]: enabled }));
     setMessage(translateGlobal(enabled ? "workspace.engine.status.nullEnabled" : "workspace.engine.status.nullDisabled", { key }));
+  }, []);
+
+  const setRemoveEmptyColumnsOnImport = useCallback((enabled: boolean) => {
+    setRemoveEmptyColumnsOnImportState(enabled);
+    setMessage(
+      translateGlobal(
+        enabled
+          ? "workspace.engine.status.removeEmptyColumnsEnabled"
+          : "workspace.engine.status.removeEmptyColumnsDisabled",
+      ),
+    );
+  }, []);
+
+  const setPreviewPage = useCallback((page: number) => {
+    setPreviewPageState(Math.max(0, Math.floor(page)));
   }, []);
 
   const createChoiceType = useCallback((name: string, options: string[]) => {
@@ -2053,6 +2217,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       previewDataset: derived?.dataset ?? null,
       dateFormat,
       decimalSeparator,
+      removeEmptyColumnsOnImport,
+      previewPage,
       customTypes,
       canUndo: undoableOperations.length > 0,
       undoCount: undoableOperations.length,
@@ -2064,6 +2230,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setColumnNullTracking,
       setDateFormat,
       setDecimalSeparator,
+      setRemoveEmptyColumnsOnImport,
+      setPreviewPage,
       createChoiceType,
       createStructuredStringType,
       buildPreview,
@@ -2081,6 +2249,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       derived,
       dateFormat,
       decimalSeparator,
+      removeEmptyColumnsOnImport,
+      previewPage,
       customTypes,
       undoableOperations.length,
       importFile,
@@ -2090,6 +2260,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setColumnNullTracking,
       setDateFormat,
       setDecimalSeparator,
+      setRemoveEmptyColumnsOnImport,
+      setPreviewPage,
       createChoiceType,
       createStructuredStringType,
       buildPreview,

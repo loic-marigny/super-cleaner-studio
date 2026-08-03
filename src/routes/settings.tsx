@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/sp/StatusBadge";
 import { TextField } from "@/components/sp/TextField";
 import { Toggle } from "@/components/sp/Toggle";
 import { translateGlobal, useI18n } from "@/lib/i18n";
+import { useWorkspace } from "@/lib/workspace";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -25,6 +26,7 @@ function SettingsPage() {
   const [autoDetect, setAutoDetect] = useState(true);
   const [openIssues, setOpenIssues] = useState(false);
   const { t } = useI18n();
+  const workspace = useWorkspace();
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
@@ -44,6 +46,11 @@ function SettingsPage() {
         <Section title={t("settings.sections.analysisTitle")} description={t("settings.sections.analysisDescription")}>
           <Toggle checked={autoDetect} onChange={setAutoDetect} label={t("settings.toggles.autoDetect")} />
           <Toggle checked={openIssues} onChange={setOpenIssues} label={t("settings.toggles.openIssues")} />
+          <Toggle
+            checked={workspace.removeEmptyColumnsOnImport}
+            onChange={workspace.setRemoveEmptyColumnsOnImport}
+            label={t("settings.toggles.removeEmptyColumns")}
+          />
           <Toggle checked={compact} onChange={setCompact} label={t("settings.toggles.compact")} />
         </Section>
 
