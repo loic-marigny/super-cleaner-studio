@@ -1,12 +1,12 @@
-# Super Pipeline Studio
+# Super Cleaner Studio
 
-Conçois uniquement le front-end et le design system de Super Pipeline, une petite application web gratuite permettant de nettoyer et standardiser des fichiers Excel (.xlsx) et CSV.
+Conçois uniquement le front-end et le design system de Super Cleaner, une petite application web gratuite permettant de nettoyer et standardiser des fichiers Excel (.xlsx) et CSV.
 
 Le but est exclusivement de créer une interface graphique cohérente et réutilisable. Ne développe aucune logique métier réelle et utilise uniquement des données simulées. Les fonctionnalités seront développées ultérieurement.
 
 Philosophie du projet
 
-Super Pipeline est un petit utilitaire, pas une plateforme SaaS.
+Super Cleaner est un petit utilitaire, pas une plateforme SaaS.
 
 L'utilisateur arrive avec un fichier, le fait analyser, le nettoie puis le télécharge.
 
@@ -36,7 +36,7 @@ Conçois l'application comme un logiciel de bureau installé localement, même s
 
 Direction artistique
 
-L'identité visuelle est inspirée des logiciels bureautiques des années 1995–2005 (Windows 95, Windows XP, Excel 2003), mais entièrement modernisée.
+L'identité visuelle est inspirée des logiciels bureautiques des années 1995�?"2005 (Windows 95, Windows XP, Excel 2003), mais entièrement modernisée.
 
 Il ne s'agit pas d'une parodie rétro.
 
@@ -92,7 +92,7 @@ Rouge erreur
 
 #C85C5C
 
-Évite le noir pur autant que possible.
+�?vite le noir pur autant que possible.
 
 Typographie
 
@@ -110,9 +110,9 @@ Le logo doit être basé sur :
 
 SP
 
- ou Super Pipeline
+ ou Super Cleaner
 
-Évite les logos complexes ou illustratifs.
+�?vite les logos complexes ou illustratifs.
 
 Le logo peut utiliser les couleurs de la palette et rappeler discrètement l'univers des logiciels bureautiques, tout en restant moderne.
 
@@ -164,7 +164,7 @@ Elle contient :
 
 2. Workspace
 
-C'est le cœur de l'application.
+C'est le c�"ur de l'application.
 
 Après le chargement du fichier, l'utilisateur arrive directement ici.
 
@@ -178,7 +178,7 @@ La hiérarchie est simple :
 
  immense surface de travail.
 
-Évite les interfaces composées de nombreuses cartes, panneaux ou widgets.
+�?vite les interfaces composées de nombreuses cartes, panneaux ou widgets.
 
 Le tableur est toujours la priorité visuelle.
 
@@ -324,7 +324,7 @@ Icônes
 
 Utilise des icônes cohérentes avec l'esprit bureautique rétro modernisé.
 
-Évite les illustrations décoratives.
+�?vite les illustrations décoratives.
 
 Composants
 
@@ -450,7 +450,7 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Prefer working locally? You need Node.js and npm �?" [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
 git clone <this-repository-url>
@@ -458,3 +458,4 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+

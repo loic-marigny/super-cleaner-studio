@@ -1,17 +1,18 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowRight, EyeOff, FileText, ShieldCheck, Zap } from "lucide-react";
 import { FileDrop } from "@/components/sp/FileDrop";
 import { Logo } from "@/components/sp/Logo";
-import { ShieldCheck, EyeOff, Zap, FileText, ArrowRight } from "lucide-react";
 import { SpButton } from "@/components/sp/Button";
+import { translateGlobal, useI18n } from "@/lib/i18n";
+import { useWorkspace } from "@/lib/workspace";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Super Pipeline — Nettoyer vos fichiers Excel et CSV" },
+      { title: translateGlobal("landing.meta.title") },
       {
         name: "description",
-        content:
-          "Déposez un fichier .xlsx ou .csv, laissez Super Pipeline détecter les problèmes et téléchargez un fichier propre. Local, gratuit, sans compte.",
+        content: translateGlobal("landing.meta.description"),
       },
     ],
   }),
@@ -20,63 +21,77 @@ export const Route = createFileRoute("/")({
 
 function LandingPage() {
   const navigate = useNavigate();
+  const workspace = useWorkspace();
+  const { t } = useI18n();
 
   return (
     <div className="relative flex-1">
-      {/* Discreet backdrop */}
       <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.35]" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-[var(--color-surface-raised)] to-transparent" />
 
-      <div className="relative mx-auto max-w-5xl px-6 pt-16 pb-24">
+      <div className="relative mx-auto max-w-5xl px-6 pb-24 pt-16">
         <div className="text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-3 py-1 text-[11px] font-medium text-[var(--color-brown)] bevel">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
-            Traitement 100% local · Aucun envoi de fichier
+            {t("landing.badge")}
           </div>
 
-          <h1 className="mt-6 text-4xl sm:text-5xl font-semibold tracking-tight text-[var(--color-brown-dark)]">
-            Nettoyez vos fichiers Excel et CSV.
+          <h1 className="mt-6 text-4xl font-semibold tracking-tight text-[var(--color-brown-dark)] sm:text-5xl">
+            {t("landing.titleLine1")}
             <br />
-            <span className="text-[var(--color-brown)]">Sans compte. Sans détour.</span>
+            <span className="text-[var(--color-brown)]">{t("landing.titleLine2")}</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-[15px] leading-relaxed text-[var(--color-brown)]">
-            Super Pipeline est un petit utilitaire de bureau qui vit dans votre navigateur.
-            Déposez un fichier, laissez-le être analysé, choisissez ce que vous voulez corriger,
-            puis téléchargez un fichier propre. Rien de plus.
+            {t("landing.description")}
           </p>
         </div>
 
         <div className="mt-10">
-          <FileDrop onFile={() => navigate({ to: "/workspace" })} />
+          <FileDrop
+            onFile={async (file) => {
+              await workspace.importFile(file);
+              navigate({ to: "/workspace" });
+            }}
+            onDemo={async () => {
+              await workspace.loadDemo();
+              navigate({ to: "/workspace" });
+            }}
+            disabled={workspace.status === "importing"}
+          />
         </div>
 
-        {/* Three-step explanation */}
         <div className="mt-10 grid gap-3 sm:grid-cols-3">
-          <StepCard n={1} title="Déposez un fichier" text=".xlsx, .csv ou .tsv. Il ne quitte jamais votre machine." />
-          <StepCard n={2} title="Analyse automatique" text="Types, valeurs manquantes, incohérences, valeurs aberrantes." />
-          <StepCard n={3} title="Téléchargez le résultat" text="Un fichier propre, standardisé, prêt à être utilisé." />
+          <StepCard n={1} title={t("landing.steps.importTitle")} text={t("landing.steps.importText")} />
+          <StepCard n={2} title={t("landing.steps.analysisTitle")} text={t("landing.steps.analysisText")} />
+          <StepCard n={3} title={t("landing.steps.exportTitle")} text={t("landing.steps.exportText")} />
         </div>
 
-        {/* Trust row */}
         <div className="mt-12 grid gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]/70 p-4 sm:grid-cols-3">
-          <TrustItem icon={<ShieldCheck className="h-4 w-4" />} label="Aucun compte" text="Rien à créer, rien à confirmer." />
-          <TrustItem icon={<EyeOff className="h-4 w-4" />} label="Aucun stockage" text="Vos fichiers restent dans votre navigateur." />
-          <TrustItem icon={<Zap className="h-4 w-4" />} label="Rapide et local" text="Aucun serveur à contacter, aucune attente." />
+          <TrustItem icon={<ShieldCheck className="h-4 w-4" />} label={t("landing.trust.noAccountLabel")} text={t("landing.trust.noAccountText")} />
+          <TrustItem icon={<EyeOff className="h-4 w-4" />} label={t("landing.trust.noStorageLabel")} text={t("landing.trust.noStorageText")} />
+          <TrustItem icon={<Zap className="h-4 w-4" />} label={t("landing.trust.instantExportLabel")} text={t("landing.trust.instantExportText")} />
         </div>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-          <SpButton variant="secondary" onClick={() => navigate({ to: "/workspace" })} trailingIcon={<ArrowRight className="h-4 w-4" />}>
-            Ouvrir un fichier d'exemple
+          <SpButton
+            variant="secondary"
+            onClick={async () => {
+              await workspace.loadDemo();
+              navigate({ to: "/workspace" });
+            }}
+            trailingIcon={<ArrowRight className="h-4 w-4" />}
+          >
+            {t("landing.actions.demo")}
           </SpButton>
           <SpButton variant="ghost" onClick={() => navigate({ to: "/about" })} leadingIcon={<FileText className="h-4 w-4" />}>
-            En savoir plus sur le projet
+            {t("landing.actions.about")}
           </SpButton>
         </div>
 
         <footer className="mt-20 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-6 text-[12px] text-[var(--color-brown)]/80">
           <Logo size="sm" showWordmark />
           <div className="flex items-center gap-4">
-            <span>Version 0.1 · Licence MIT</span>
+            <span>{t("landing.footer")}</span>
           </div>
         </footer>
       </div>
@@ -88,7 +103,7 @@ function StepCard({ n, title, text }: { n: number; title: string; text: string }
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
       <div className="flex items-center gap-2">
-        <span className="grid h-6 w-6 place-items-center rounded-md bg-[var(--color-brown-dark)] text-[var(--color-surface-raised)] text-[11px] font-bold bevel">
+        <span className="grid h-6 w-6 place-items-center rounded-md bg-[var(--color-brown-dark)] text-[11px] font-bold text-[var(--color-surface-raised)] bevel">
           {n}
         </span>
         <h3 className="text-sm font-semibold text-[var(--color-brown-dark)]">{title}</h3>

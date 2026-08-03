@@ -8,6 +8,7 @@ export function Modal({
   onClose,
   title,
   description,
+  headerAction,
   children,
   footer,
   size = "md",
@@ -16,6 +17,7 @@ export function Modal({
   onClose: () => void;
   title: string;
   description?: string;
+  headerAction?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
@@ -45,13 +47,16 @@ export function Modal({
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-5 py-3.5">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-semibold text-[var(--color-brown-dark)]">{title}</h2>
             {description && <p className="mt-0.5 text-sm text-[var(--color-brown)]">{description}</p>}
           </div>
-          <SpButton variant="ghost" size="icon" onClick={onClose} aria-label="Fermer">
-            <X className="h-4 w-4" />
-          </SpButton>
+          <div className="flex items-start gap-2">
+            {headerAction}
+            <SpButton variant="ghost" size="icon" onClick={onClose} aria-label="Fermer">
+              <X className="h-4 w-4" />
+            </SpButton>
+          </div>
         </div>
         <div className="max-h-[70vh] overflow-auto px-5 py-4">{children}</div>
         {footer && (

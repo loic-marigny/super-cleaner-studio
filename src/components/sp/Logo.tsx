@@ -7,8 +7,8 @@ interface LogoProps {
 }
 
 /**
- * Super Pipeline logo.
- * A small monogrammed tile ("SP") reminiscent of a desktop app icon,
+ * Super Cleaner logo.
+ * A small monogrammed tile ("SC") reminiscent of a desktop app icon,
  * paired with the wordmark. Uses only design-system tokens.
  */
 export function Logo({ className, size = "md", showWordmark = true }: LogoProps) {
@@ -25,12 +25,12 @@ export function Logo({ className, size = "md", showWordmark = true }: LogoProps)
           tileSize,
         )}
       >
-        <span className="leading-none">SP</span>
+        <span className="leading-none">SC</span>
         <span className="absolute right-0.5 bottom-0.5 h-1 w-1 rounded-full bg-[var(--color-accent)]" />
       </div>
       {showWordmark && (
         <div className={cn("flex flex-col leading-none", wordSize)}>
-          <span className="font-semibold text-[var(--color-brown-dark)]">Super Pipeline</span>
+          <span className="font-semibold text-[var(--color-brown-dark)]">Super Cleaner</span>
           <span className="mt-0.5 text-[10px] font-normal uppercase tracking-[0.14em] text-[var(--color-brown)]/70">
             Data janitor
           </span>

@@ -1,0 +1,21 @@
+id;email;montant;tva;taux_remise;actif;verifie;inscription;ville;statut;quasi_cle
+1;alice@example.com;1250.50;250.10;0.15;true;oui;2025-01-10;Paris;ok;QC-001
+2;bob[at]example.com;820;164;0.05;false;non;2025-01-11;Paris;ok;QC-002
+3;charles@example.com;;;0.00;true;oui;2025-01-12;Paris;ok;QC-003
+4;charles@example.com;99999;19999.8;0.50;true;1;2025-01-12;Paris;ok;QC-004
+5;eve@example.com;45,80;9,16;0.10;false;0;31/02/2025; ;ok;QC-005
+6;frank@example.com;12.5;2.5;0.025;true;yes;2025-02-01;Marseille;ok;QC-006
+7;;;;;false;no;2025-02-03;Paris;ok;QC-007
+8;   ;0;0;0.00;true;vrai;2025-02-04;Marseille;ok;QC-008
+9;ida@example.com;17;3.4;0.08;false;faux;2025-02-05;Paris;ok;QC-009
+10;jules@example.com;19;3.8;0.12;true;true;2025-02-05;Marseille;ok;QC-010
+11;lea@example.com;100;20;0.00;TRUE;OUI;2025;Paris;ok;QC-011
+12;marc@example.com;100.00;20.00;0.005;False;Non;2025-02;Marseille;ok;QC-012
+13;nina@example.com;-42;-8.4;1.00;1;0;02/2025;Paris;ok;QC-013
+14;omar@example.com;0012;2.4;0.3333;0;1;2025-2-7;Marseille;ok;QC-014
+15;paul@example.com;12 500;2500;0,20;yes;no;2025-02-29;Paris;ok;QC-015
+16;quinn@example.com;3.14159;0.628318;0.125;vrai;faux; 2025-03-01 ;Grenoble;ok;QC-016
+17;rita@example.com;7;1.4;0.07;true;false;2024-02-29;Marseille;ok;QC-017
+18;sami@example.com;88;17.6;0.09;false;true;13/13/2025;Paris;ok;QC-018
+19;tess@example.com;abc;5.5;0.11;true;false;2025-04-10;Rouen;ok;QC-019
+20;ugo@example.com;44;8.8;0.04;false;true;2025-04-11;Paris;ok;QC-019

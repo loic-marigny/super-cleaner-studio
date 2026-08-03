@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { Download, Search, Sparkles } from "lucide-react";
 import { SpButton } from "@/components/sp/Button";
 import { StatusBadge } from "@/components/sp/StatusBadge";
 import { ProgressBar } from "@/components/sp/ProgressBar";
@@ -7,109 +9,103 @@ import { Toggle, Checkbox } from "@/components/sp/Toggle";
 import { Stepper } from "@/components/sp/Stepper";
 import { CollapsiblePanel } from "@/components/sp/CollapsiblePanel";
 import { Modal } from "@/components/sp/Modal";
-import { useState } from "react";
-import { Download, Search, Sparkles } from "lucide-react";
+import { translateGlobal, useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/design-system")({
   head: () => ({
     meta: [
-      { title: "Design system — Super Pipeline" },
-      { name: "description", content: "Palette, typographie, composants et animations du design system Super Pipeline." },
+      { title: translateGlobal("designSystem.meta.title") },
+      { name: "description", content: translateGlobal("designSystem.meta.description") },
     ],
   }),
   component: DsPage,
 });
 
-const swatches = [
-  { name: "Fond principal", value: "#F4F1EA", token: "--background" },
-  { name: "Fond secondaire", value: "#FCFBF8", token: "--surface-raised" },
-  { name: "Fond enfoncé", value: "#EDE8DE", token: "--surface-sunken" },
-  { name: "Brun principal", value: "#7A5C45", token: "--brown" },
-  { name: "Brun foncé", value: "#4D3B2D", token: "--brown-dark" },
-  { name: "Bleu accent", value: "#4A7CFF", token: "--accent" },
-  { name: "Vert succès", value: "#63A86C", token: "--success" },
-  { name: "Orange avertissement", value: "#D89A3D", token: "--warning" },
-  { name: "Rouge erreur", value: "#C85C5C", token: "--destructive" },
-];
-
 function DsPage() {
+  const { t } = useI18n();
   const [modal, setModal] = useState(false);
   const [toggle, setToggle] = useState(true);
   const [check, setCheck] = useState(false);
 
+  const swatches = [
+    { name: t("designSystem.palette.background"), value: "#F4F1EA", token: "--background" },
+    { name: t("designSystem.palette.surfaceRaised"), value: "#FCFBF8", token: "--surface-raised" },
+    { name: t("designSystem.palette.surfaceSunken"), value: "#EDE8DE", token: "--surface-sunken" },
+    { name: t("designSystem.palette.brown"), value: "#7A5C45", token: "--brown" },
+    { name: t("designSystem.palette.brownDark"), value: "#4D3B2D", token: "--brown-dark" },
+    { name: t("designSystem.palette.accent"), value: "#4A7CFF", token: "--accent" },
+    { name: t("designSystem.palette.success"), value: "#63A86C", token: "--success" },
+    { name: t("designSystem.palette.warning"), value: "#D89A3D", token: "--warning" },
+    { name: t("designSystem.palette.destructive"), value: "#C85C5C", token: "--destructive" },
+  ];
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-12">
+    <div className="mx-auto w-full max-w-6xl space-y-12 px-6 py-10">
       <header>
-        <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-brown)]/70">Design system</div>
-        <h1 className="mt-2 text-3xl font-semibold text-[var(--color-brown-dark)]">Fondations de Super Pipeline</h1>
-        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--color-brown)]">
-          Une base cohérente inspirée des logiciels bureautiques 1995–2005, entièrement modernisée.
-          Chaleureuse, sobre, très lisible.
-        </p>
+        <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-brown)]/70">{t("designSystem.eyebrow")}</div>
+        <h1 className="mt-2 text-3xl font-semibold text-[var(--color-brown-dark)]">{t("designSystem.title")}</h1>
+        <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--color-brown)]">{t("designSystem.description")}</p>
       </header>
 
-      {/* Palette */}
-      <Block title="Palette" subtitle="Toutes les couleurs sont exposées comme variables CSS.">
+      <Block title={t("designSystem.palette.title")} subtitle={t("designSystem.palette.subtitle")}>
         <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3">
-          {swatches.map((s) => (
-            <div key={s.token} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-3 shadow-panel">
-              <div className="h-16 w-full rounded-md border border-[var(--color-border)]" style={{ background: s.value }} />
+          {swatches.map((swatch) => (
+            <div key={swatch.token} className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-3 shadow-panel">
+              <div className="h-16 w-full rounded-md border border-[var(--color-border)]" style={{ background: swatch.value }} />
               <div className="mt-2 flex items-center justify-between">
                 <div>
-                  <div className="text-[13px] font-semibold text-[var(--color-brown-dark)]">{s.name}</div>
-                  <div className="font-mono text-[11px] text-[var(--color-brown)]">{s.value}</div>
+                  <div className="text-[13px] font-semibold text-[var(--color-brown-dark)]">{swatch.name}</div>
+                  <div className="font-mono text-[11px] text-[var(--color-brown)]">{swatch.value}</div>
                 </div>
-                <span className="font-mono text-[10.5px] text-[var(--color-brown)]/70">{s.token}</span>
+                <span className="font-mono text-[10.5px] text-[var(--color-brown)]/70">{swatch.token}</span>
               </div>
             </div>
           ))}
         </div>
       </Block>
 
-      {/* Typography */}
-      <Block title="Typographie" subtitle="Inter pour l'UI. JetBrains Mono pour les données et le monogramme.">
-        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-6 shadow-panel space-y-3">
-          <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--color-brown)]/70">Display · Semibold</div>
-          <div className="text-4xl font-semibold text-[var(--color-brown-dark)]">Nettoyer sans détour.</div>
-          <div className="text-2xl font-semibold text-[var(--color-brown-dark)]">Titre de section</div>
-          <div className="text-base text-[var(--color-brown-dark)]">Corps de texte, taille par défaut. Le brun foncé garde du confort de lecture sans agresser.</div>
-          <div className="text-sm text-[var(--color-brown)]">Texte secondaire. Notes, descriptions, sous-titres.</div>
-          <div className="font-mono text-sm text-[var(--color-brown-dark)]">clients_2024_export.xlsx · 12 450,00 €</div>
+      <Block title={t("designSystem.typography.title")} subtitle={t("designSystem.typography.subtitle")}>
+        <div className="space-y-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-6 shadow-panel">
+          <div className="text-[10px] uppercase tracking-[0.14em] text-[var(--color-brown)]/70">{t("designSystem.typography.display")}</div>
+          <div className="text-4xl font-semibold text-[var(--color-brown-dark)]">{t("designSystem.typography.hero")}</div>
+          <div className="text-2xl font-semibold text-[var(--color-brown-dark)]">{t("designSystem.typography.sectionTitle")}</div>
+          <div className="text-base text-[var(--color-brown-dark)]">{t("designSystem.typography.body")}</div>
+          <div className="text-sm text-[var(--color-brown)]">{t("designSystem.typography.secondary")}</div>
+          <div className="font-mono text-sm text-[var(--color-brown-dark)]">{t("designSystem.typography.mono")}</div>
         </div>
       </Block>
 
-      {/* Grid, spacing, radius, shadow */}
-      <Block title="Grille, espacement, rayons, ombres" subtitle="Multiples de 8 px. Rayons doux. Ombres très légères.">
+      <Block title={t("designSystem.layout.title")} subtitle={t("designSystem.layout.subtitle")}>
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
-            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">Espacements</div>
+            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">{t("designSystem.layout.spacing")}</div>
             <div className="mt-3 flex items-end gap-1">
-              {[4, 8, 12, 16, 24, 32].map((s) => (
-                <div key={s} className="flex flex-col items-center gap-1">
-                  <div className="bg-[var(--color-accent)]/80 rounded-sm" style={{ height: s, width: 16 }} />
-                  <span className="text-[10px] text-[var(--color-brown)]">{s}</span>
+              {[4, 8, 12, 16, 24, 32].map((spacing) => (
+                <div key={spacing} className="flex flex-col items-center gap-1">
+                  <div className="rounded-sm bg-[var(--color-accent)]/80" style={{ height: spacing, width: 16 }} />
+                  <span className="text-[10px] text-[var(--color-brown)]">{spacing}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
-            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">Rayons</div>
+            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">{t("designSystem.layout.radius")}</div>
             <div className="mt-3 flex items-center gap-2">
               {[
                 ["sm", "rounded-sm"],
                 ["md", "rounded-md"],
                 ["lg", "rounded-lg"],
                 ["xl", "rounded-xl"],
-              ].map(([l, c]) => (
-                <div key={l} className="flex flex-col items-center gap-1">
-                  <div className={`h-10 w-10 bg-[var(--color-brown-dark)] ${c}`} />
-                  <span className="text-[10px] text-[var(--color-brown)]">{l}</span>
+              ].map(([label, className]) => (
+                <div key={label} className="flex flex-col items-center gap-1">
+                  <div className={`h-10 w-10 bg-[var(--color-brown-dark)] ${className}`} />
+                  <span className="text-[10px] text-[var(--color-brown)]">{label}</span>
                 </div>
               ))}
             </div>
           </div>
           <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
-            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">Ombres</div>
+            <div className="text-[11px] uppercase tracking-wider text-[var(--color-brown)]/70">{t("designSystem.layout.shadows")}</div>
             <div className="mt-3 flex items-center gap-3">
               <div className="h-12 w-12 rounded-md bg-[var(--color-surface-raised)] shadow-panel" />
               <div className="h-12 w-12 rounded-md bg-[var(--color-surface-raised)] shadow-raised" />
@@ -120,92 +116,88 @@ function DsPage() {
         </div>
       </Block>
 
-      {/* Buttons */}
-      <Block title="Boutons" subtitle="Six variantes, quatre tailles, tous les états.">
+      <Block title={t("designSystem.buttons.title")} subtitle={t("designSystem.buttons.subtitle")}>
         <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-5 shadow-panel">
           <div className="flex flex-wrap gap-2">
-            <SpButton>Primaire</SpButton>
-            <SpButton variant="secondary">Secondaire</SpButton>
-            <SpButton variant="ghost">Discret</SpButton>
-            <SpButton variant="accent" leadingIcon={<Sparkles className="h-4 w-4" />}>Accent</SpButton>
-            <SpButton variant="success" leadingIcon={<Download className="h-4 w-4" />}>Succès</SpButton>
-            <SpButton variant="danger">Erreur</SpButton>
+            <SpButton>{t("designSystem.buttons.primary")}</SpButton>
+            <SpButton variant="secondary">{t("designSystem.buttons.secondary")}</SpButton>
+            <SpButton variant="ghost">{t("designSystem.buttons.ghost")}</SpButton>
+            <SpButton variant="accent" leadingIcon={<Sparkles className="h-4 w-4" />}>{t("designSystem.buttons.accent")}</SpButton>
+            <SpButton variant="success" leadingIcon={<Download className="h-4 w-4" />}>{t("designSystem.buttons.success")}</SpButton>
+            <SpButton variant="danger">{t("designSystem.buttons.danger")}</SpButton>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <SpButton size="sm">Small</SpButton>
-            <SpButton size="md">Medium</SpButton>
-            <SpButton size="lg">Large</SpButton>
-            <SpButton loading>En cours</SpButton>
-            <SpButton disabled>Désactivé</SpButton>
+            <SpButton size="sm">{t("designSystem.buttons.small")}</SpButton>
+            <SpButton size="md">{t("designSystem.buttons.medium")}</SpButton>
+            <SpButton size="lg">{t("designSystem.buttons.large")}</SpButton>
+            <SpButton loading>{t("designSystem.buttons.loading")}</SpButton>
+            <SpButton disabled>{t("designSystem.buttons.disabled")}</SpButton>
           </div>
         </div>
       </Block>
 
-      {/* Status */}
-      <Block title="Statuts & progression" subtitle="Signaux courts et barres discrètes.">
+      <Block title={t("designSystem.status.title")} subtitle={t("designSystem.status.subtitle")}>
         <div className="grid gap-4 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-5 shadow-panel md:grid-cols-2">
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">
-              <StatusBadge tone="neutral">Neutre</StatusBadge>
-              <StatusBadge tone="info">Info</StatusBadge>
-              <StatusBadge tone="success">Terminé</StatusBadge>
-              <StatusBadge tone="warning">3 anomalies</StatusBadge>
-              <StatusBadge tone="error">Échec</StatusBadge>
-              <StatusBadge tone="loading">Analyse…</StatusBadge>
+              <StatusBadge tone="neutral">{t("designSystem.status.neutral")}</StatusBadge>
+              <StatusBadge tone="info">{t("common.severity.info")}</StatusBadge>
+              <StatusBadge tone="success">{t("designSystem.status.success")}</StatusBadge>
+              <StatusBadge tone="warning">{t("designSystem.status.issues")}</StatusBadge>
+              <StatusBadge tone="error">{t("common.severity.error")}</StatusBadge>
+              <StatusBadge tone="loading">{t("designSystem.status.loading")}</StatusBadge>
             </div>
             <Stepper
               currentIndex={2}
               steps={[
-                { key: "1", label: "Lecture" },
-                { key: "2", label: "Analyse" },
-                { key: "3", label: "Nettoyage" },
-                { key: "4", label: "Export" },
+                { key: "1", label: t("designSystem.status.stepLoad") },
+                { key: "2", label: t("designSystem.status.stepAnalyze") },
+                { key: "3", label: t("designSystem.status.stepClean") },
+                { key: "4", label: t("designSystem.status.stepExport") },
               ]}
             />
           </div>
           <div className="space-y-3">
-            <ProgressBar value={38} tone="accent" label="Analyse des types" showValue />
-            <ProgressBar value={72} tone="warning" label="Cohérence des colonnes" showValue />
-            <ProgressBar value={100} tone="success" label="Cellules vides" showValue />
-            <ProgressBar indeterminate tone="accent" label="Lecture du fichier…" />
+            <ProgressBar value={38} tone="accent" label={t("designSystem.status.progressTypes")} showValue />
+            <ProgressBar value={72} tone="warning" label={t("designSystem.status.progressColumns")} showValue />
+            <ProgressBar value={100} tone="success" label={t("designSystem.status.progressEmpty")} showValue />
+            <ProgressBar indeterminate tone="accent" label={t("designSystem.status.progressReading")} />
           </div>
         </div>
       </Block>
 
-      {/* Forms */}
-      <Block title="Formulaires" subtitle="Champs, sélecteurs, interrupteurs.">
+      <Block title={t("designSystem.forms.title")} subtitle={t("designSystem.forms.subtitle")}>
         <div className="grid gap-4 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-5 shadow-panel md:grid-cols-2">
           <div className="space-y-3">
-            <TextField label="Nom du fichier" defaultValue="export.clean" hint="L'extension est ajoutée automatiquement." />
-            <TextField label="Recherche" placeholder="Chercher une colonne…" leadingIcon={<Search className="h-4 w-4" />} />
-            <TextField label="Champ en erreur" defaultValue="mauvaise valeur" error="Ce champ est invalide." />
+            <TextField label={t("designSystem.forms.fileName")} defaultValue="export.clean" hint={t("designSystem.forms.fileNameHint")} />
+            <TextField label={t("designSystem.forms.search")} placeholder={t("designSystem.forms.searchPlaceholder")} leadingIcon={<Search className="h-4 w-4" />} />
+            <TextField label={t("designSystem.forms.invalidField")} defaultValue={t("designSystem.forms.invalidFieldValue")} error={t("designSystem.forms.invalidFieldError")} />
           </div>
           <div className="space-y-3">
-            <Toggle checked={toggle} onChange={setToggle} label="Détecter automatiquement les types" description="Nombre, date, email, texte." />
-            <Toggle checked={false} onChange={() => {}} label="Corriger silencieusement" description="Applique les corrections sans confirmation." />
-            <Checkbox checked={check} onChange={setCheck} label="J'ai compris que rien n'est envoyé sur un serveur." />
+            <Toggle checked={toggle} onChange={setToggle} label={t("designSystem.forms.autoDetect")} description={t("designSystem.forms.autoDetectDescription")} />
+            <Toggle checked={false} onChange={() => {}} label={t("designSystem.forms.silentFix")} description={t("designSystem.forms.silentFixDescription")} />
+            <Checkbox checked={check} onChange={setCheck} label={t("designSystem.forms.checkbox")} />
           </div>
         </div>
       </Block>
 
-      {/* Panels & overlays */}
-      <Block title="Panneaux et fenêtres" subtitle="Panneau repliable, modal centrée.">
+      <Block title={t("designSystem.panels.title")} subtitle={t("designSystem.panels.subtitle")}>
         <div className="space-y-3">
           <CollapsiblePanel
-            title="Règles de nettoyage"
-            subtitle="Fermé par défaut. Ne prend pas de place tant qu'il n'est pas ouvert."
+            title={t("designSystem.panels.cleanupTitle")}
+            subtitle={t("designSystem.panels.cleanupSubtitle")}
             defaultOpen
-            action={<SpButton size="sm" variant="accent">Appliquer</SpButton>}
+            action={<SpButton size="sm" variant="accent">{t("designSystem.panels.apply")}</SpButton>}
           >
             <div className="grid gap-2 sm:grid-cols-2">
-              <Toggle checked={true} onChange={() => {}} label="Uniformiser la casse" />
-              <Toggle checked={true} onChange={() => {}} label="Nettoyer les espaces" />
-              <Toggle checked={false} onChange={() => {}} label="Détecter les doublons" />
-              <Toggle checked={false} onChange={() => {}} label="Isoler les valeurs aberrantes" />
+              <Toggle checked={true} onChange={() => {}} label={t("designSystem.panels.normalizeCase")} />
+              <Toggle checked={true} onChange={() => {}} label={t("designSystem.panels.trimSpaces")} />
+              <Toggle checked={false} onChange={() => {}} label={t("designSystem.panels.detectDuplicates")} />
+              <Toggle checked={false} onChange={() => {}} label={t("designSystem.panels.detectOutliers")} />
             </div>
           </CollapsiblePanel>
           <div>
-            <SpButton onClick={() => setModal(true)}>Ouvrir une fenêtre modale</SpButton>
+            <SpButton onClick={() => setModal(true)}>{t("designSystem.panels.openModal")}</SpButton>
           </div>
         </div>
       </Block>
@@ -213,19 +205,16 @@ function DsPage() {
       <Modal
         open={modal}
         onClose={() => setModal(false)}
-        title="Exemple de fenêtre"
-        description="Ouvre par-dessus le tableur, se referme en un clic."
+        title={t("designSystem.panels.modalTitle")}
+        description={t("designSystem.panels.modalDescription")}
         footer={
           <>
-            <SpButton variant="ghost" onClick={() => setModal(false)}>Annuler</SpButton>
-            <SpButton onClick={() => setModal(false)}>Confirmer</SpButton>
+            <SpButton variant="ghost" onClick={() => setModal(false)}>{t("common.actions.cancel")}</SpButton>
+            <SpButton onClick={() => setModal(false)}>{t("designSystem.panels.confirm")}</SpButton>
           </>
         }
       >
-        <p className="text-sm text-[var(--color-brown)]">
-          Les fenêtres modales servent à la gestion ponctuelle — problèmes détectés, export, préférences avancées.
-          Une fois refermées, l'espace de travail retrouve toute la place.
-        </p>
+        <p className="text-sm text-[var(--color-brown)]">{t("designSystem.panels.modalBody")}</p>
       </Modal>
     </div>
   );
@@ -245,7 +234,7 @@ function Block({
       <div className="mb-3 flex items-end justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-[var(--color-brown-dark)]">{title}</h2>
-          {subtitle && <p className="text-[12.5px] text-[var(--color-brown)]">{subtitle}</p>}
+          {subtitle ? <p className="text-[12.5px] text-[var(--color-brown)]">{subtitle}</p> : null}
         </div>
       </div>
       {children}
