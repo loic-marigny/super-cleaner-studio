@@ -1808,8 +1808,11 @@ function buildAnomalyReportDataset(
   headers: string[],
   analysis: AnalysisSummary,
   customTypes: CustomColumnTypeDefinition[],
+  removedEmptyColumns: ColumnAnalysis[] = [],
 ): Dataset {
-  const columnsByKey = new Map(analysis.columns.map((column) => [column.key, column]));
+  const columnsByKey = new Map(
+    [...analysis.columns, ...removedEmptyColumns].map((column) => [column.key, column]),
+  );
 
   const indicatorRows: Array<{ indicator: string; valueFor: (header: string) => string }> = [
     {
@@ -1891,6 +1894,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const [previewPage, setPreviewPageState] = useState(0);
   const [customTypes, setCustomTypes] = useState<CustomColumnTypeDefinition[]>([]);
+  const [removedEmptyColumns, setRemovedEmptyColumns] = useState<ColumnAnalysis[]>([]);
   const lastDerivedRef = useRef<DerivedWorkspace | null>(null);
 
   useEffect(() => {
@@ -1937,6 +1941,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setDecimalSeparator("both");
     setPreviewPageState(0);
     setCustomTypes([]);
+    setRemovedEmptyColumns([]);
     lastDerivedRef.current = null;
   }, []);
 
@@ -1953,12 +1958,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     setProgress(80);
     const initialAnalysis = analyzeDataset(dataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
+    const removedColumnsOnImport = removeEmptyColumnsOnImport
+      ? initialAnalysis.columns.filter((column) => column.isEmpty)
+      : [];
     const nextDataset = removeEmptyColumnsOnImport ? removeEmptyColumnsFromDataset(dataset, initialAnalysis) : dataset;
     const analysis =
       nextDataset === dataset
         ? initialAnalysis
         : analyzeDataset(nextDataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
     setCommittedDataset(nextDataset);
+    setRemovedEmptyColumns(removedColumnsOnImport);
     setUndoableOperations([]);
     setSelectedPrimaryKey(analysis.selectedPrimaryKey);
     setColumnTypeOverrides({});
@@ -2091,7 +2100,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const exportAnomalyReport = useCallback(
     (fileName?: string) => {
       if (!derived || !source) return;
-      const reportDataset = buildAnomalyReportDataset(derived.dataset.headers, derived.analysis, customTypes);
+      const reportHeaders = [
+        ...derived.dataset.headers,
+        ...removedEmptyColumns
+          .map((column) => column.key)
+          .filter((key) => !derived.dataset.headers.includes(key)),
+      ];
+      const reportDataset = buildAnomalyReportDataset(
+        reportHeaders,
+        derived.analysis,
+        customTypes,
+        removedEmptyColumns,
+      );
       const csv = datasetToCsv(reportDataset, source.separator);
       const blob = new Blob([UTF8_BOM, csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -2103,7 +2123,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       URL.revokeObjectURL(url);
       setMessage(translateGlobal("workspace.engine.status.reportExported"));
     },
-    [customTypes, derived, source],
+    [customTypes, derived, removedEmptyColumns, source],
   );
 
   const setColumnType = useCallback((key: string, type: ColumnType) => {
