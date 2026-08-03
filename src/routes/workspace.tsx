@@ -211,13 +211,12 @@ function WorkspacePage() {
     });
   }, [workspace.analysis]);
 
+  const analysis = workspace.analysis;
+  const title = workspace.source?.fileName ?? t("workspace.noFileLoaded");
   const previewStart = analysis ? analysis.previewOffset + 1 : 0;
   const previewEnd = analysis ? Math.min(analysis.previewOffset + analysis.previewRows.length, analysis.rowCount) : 0;
   const previewPageCount = analysis ? Math.max(1, Math.ceil(analysis.rowCount / analysis.previewLimit)) : 1;
   const currentPreviewPage = workspace.previewPage + 1;
-
-  const title = workspace.source?.fileName ?? t("workspace.noFileLoaded");
-  const analysis = workspace.analysis;
 
   const updateChoiceTypeOption = (index: number, value: string) => {
     setChoiceTypeOptions((current) => current.map((option, optionIndex) => (optionIndex === index ? value : option)));
