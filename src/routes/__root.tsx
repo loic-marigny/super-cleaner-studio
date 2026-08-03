@@ -10,6 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { AppHeader } from "../components/sp/AppHeader";
+import { withBase } from "../lib/app-base";
 import { I18nProvider, translateGlobal, useI18n } from "../lib/i18n";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { WorkspaceProvider } from "../lib/workspace";
@@ -63,7 +64,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             {t("common.actions.retry")}
           </button>
           <a
-            href="/"
+            href={withBase("")}
             className="inline-flex items-center justify-center rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface)]"
           >
             {t("common.actions.home")}
@@ -96,7 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: withBase("favicon.ico"), type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

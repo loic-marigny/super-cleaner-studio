@@ -50,13 +50,17 @@ function AboutPage() {
         <div className="mt-4 flex flex-wrap gap-3 text-[13px]">
           <a
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 hover:bg-[var(--color-secondary)]"
-            href="#"
+            href="https://github.com/loic-marigny/super-cleaner-studio"
+            rel="noreferrer"
+            target="_blank"
           >
             <Github className="h-4 w-4" /> {t("about.license.source")}
           </a>
           <a
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 hover:bg-[var(--color-secondary)]"
-            href="#"
+            href="https://github.com/loic-marigny/super-cleaner-studio/issues"
+            rel="noreferrer"
+            target="_blank"
           >
             <Mail className="h-4 w-4" /> {t("about.license.contact")}
           </a>
