@@ -71,6 +71,10 @@ export type CustomColumnTypeDefinition = ChoiceTypeDefinition | StructuredString
 
 export type DateFormat = "yyyy-mm-dd" | "dd/mm/yyyy" | "mm/dd/yyyy";
 export type DecimalSeparator = "dot" | "comma" | "both";
+export interface NumericBoundsOverride {
+  lowerBound?: number | null;
+  upperBound?: number | null;
+}
 
 export interface AnalysisCellFlag {
   invalid?: boolean;
@@ -226,6 +230,7 @@ interface WorkspaceState {
   selectPrimaryKey: (key: string | null) => void;
   setColumnType: (key: string, type: ColumnType) => void;
   setColumnSpreadTracking: (key: string, enabled: boolean) => void;
+  setColumnSpreadBounds: (key: string, bounds: NumericBoundsOverride) => void;
   setColumnNullTracking: (key: string, enabled: boolean) => void;
   setDateFormat: (format: DateFormat) => void;
   setDecimalSeparator: (separator: DecimalSeparator) => void;
@@ -897,6 +902,7 @@ function analyzeDataset(
   typeOverrides: Partial<Record<string, ColumnType>>,
   customTypes: CustomColumnTypeDefinition[],
   spreadTracking: Partial<Record<string, boolean>>,
+  spreadBounds: Partial<Record<string, NumericBoundsOverride>>,
   nullTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
@@ -1054,8 +1060,11 @@ function analyzeDataset(
       const decile1 = percentile(sorted, 0.1);
       const decile9 = percentile(sorted, 0.9);
       const interval = decile9 - decile1;
-      const lowerBound = decile1 - 0.25 * interval;
-      const upperBound = decile9 + 0.25 * interval;
+      const defaultLowerBound = decile1 - 0.25 * interval;
+      const defaultUpperBound = decile9 + 0.25 * interval;
+      const configuredBounds = spreadBounds[header];
+      const lowerBound = configuredBounds?.lowerBound ?? defaultLowerBound;
+      const upperBound = configuredBounds?.upperBound ?? defaultUpperBound;
       const outliers = numericValues.filter((entry) => entry.value < lowerBound || entry.value > upperBound);
       if (outliers.length > 0) {
         const currentWarnings = warningCells.get(header) ?? new Set<number>();
@@ -1748,6 +1757,7 @@ function deriveDataset(
   typeOverrides: Partial<Record<string, ColumnType>>,
   customTypes: CustomColumnTypeDefinition[],
   spreadTracking: Partial<Record<string, boolean>>,
+  spreadBounds: Partial<Record<string, NumericBoundsOverride>>,
   nullTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
@@ -1760,6 +1770,7 @@ function deriveDataset(
     typeOverrides,
     customTypes,
     spreadTracking,
+    spreadBounds,
     nullTracking,
     dateFormat,
     decimalSeparator,
@@ -1774,6 +1785,7 @@ function deriveDataset(
       typeOverrides,
       customTypes,
       spreadTracking,
+      spreadBounds,
       nullTracking,
       dateFormat,
       decimalSeparator,
@@ -1886,6 +1898,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [selectedPrimaryKey, setSelectedPrimaryKey] = useState<string | null>(null);
   const [columnTypeOverrides, setColumnTypeOverrides] = useState<Partial<Record<string, ColumnType>>>({});
   const [columnSpreadTracking, setColumnSpreadTrackingState] = useState<Partial<Record<string, boolean>>>({});
+  const [columnSpreadBounds, setColumnSpreadBoundsState] = useState<Partial<Record<string, NumericBoundsOverride>>>({});
   const [columnNullTracking, setColumnNullTrackingState] = useState<Partial<Record<string, boolean>>>({});
   const [dateFormat, setDateFormat] = useState<DateFormat>("yyyy-mm-dd");
   const [decimalSeparator, setDecimalSeparator] = useState<DecimalSeparator>("both");
@@ -1910,6 +1923,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         columnTypeOverrides,
         customTypes,
         columnSpreadTracking,
+        columnSpreadBounds,
         columnNullTracking,
         dateFormat,
         decimalSeparator,
@@ -1917,7 +1931,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       );
   lastDerivedRef.current = result;
   return result;
-  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator, previewPage]);
+  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, dateFormat, decimalSeparator, previewPage]);
 
   useEffect(() => {
     if (!derived) return;
@@ -1937,6 +1951,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSelectedPrimaryKey(null);
     setColumnTypeOverrides({});
     setColumnSpreadTrackingState({});
+    setColumnSpreadBoundsState({});
     setColumnNullTrackingState({});
     setDecimalSeparator("both");
     setPreviewPageState(0);
@@ -1957,7 +1972,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await Promise.resolve();
 
     setProgress(80);
-    const initialAnalysis = analyzeDataset(dataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
+    const initialAnalysis = analyzeDataset(dataset, null, {}, customTypes, {}, {}, {}, dateFormat, decimalSeparator);
     const removedColumnsOnImport = removeEmptyColumnsOnImport
       ? initialAnalysis.columns.filter((column) => column.isEmpty)
       : [];
@@ -1965,13 +1980,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const analysis =
       nextDataset === dataset
         ? initialAnalysis
-        : analyzeDataset(nextDataset, null, {}, customTypes, {}, {}, dateFormat, decimalSeparator);
+        : analyzeDataset(nextDataset, null, {}, customTypes, {}, {}, {}, dateFormat, decimalSeparator);
     setCommittedDataset(nextDataset);
     setRemovedEmptyColumns(removedColumnsOnImport);
     setUndoableOperations([]);
     setSelectedPrimaryKey(analysis.selectedPrimaryKey);
     setColumnTypeOverrides({});
     setColumnSpreadTrackingState({});
+    setColumnSpreadBoundsState({});
     setColumnNullTrackingState({});
     setPreviewPageState(0);
     setSource({ ...meta, separator });
@@ -2045,6 +2061,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         columnTypeOverrides,
         customTypes,
         columnSpreadTracking,
+        columnSpreadBounds,
         columnNullTracking,
         dateFormat,
         decimalSeparator,
@@ -2053,7 +2070,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const nextBase = executeOperation(baseDataset, baseAnalysis, oldest, customTypes).dataset;
       return { baseDataset: nextBase, operations: rest };
     },
-    [columnTypeOverrides, customTypes, columnSpreadTracking, columnNullTracking, dateFormat, decimalSeparator, previewPage],
+    [columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, dateFormat, decimalSeparator, previewPage],
   );
 
   const buildPreview = useCallback(
@@ -2134,6 +2151,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const setColumnSpreadTracking = useCallback((key: string, enabled: boolean) => {
     setColumnSpreadTrackingState((current) => ({ ...current, [key]: enabled }));
     setMessage(translateGlobal(enabled ? "workspace.engine.status.spreadEnabled" : "workspace.engine.status.spreadDisabled", { key }));
+  }, []);
+
+  const setColumnSpreadBounds = useCallback((key: string, bounds: NumericBoundsOverride) => {
+    setColumnSpreadBoundsState((current) => {
+      const existing = current[key] ?? {};
+      const nextLower = bounds.lowerBound === undefined ? existing.lowerBound ?? null : bounds.lowerBound;
+      const nextUpper = bounds.upperBound === undefined ? existing.upperBound ?? null : bounds.upperBound;
+      const hasLower = nextLower != null && Number.isFinite(nextLower);
+      const hasUpper = nextUpper != null && Number.isFinite(nextUpper);
+
+      if (!hasLower && !hasUpper) {
+        const { [key]: _, ...rest } = current;
+        return rest;
+      }
+
+      return {
+        ...current,
+        [key]: {
+          lowerBound: hasLower ? nextLower : null,
+          upperBound: hasUpper ? nextUpper : null,
+        },
+      };
+    });
   }, []);
 
   const setColumnNullTracking = useCallback((key: string, enabled: boolean) => {
@@ -2254,6 +2294,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectPrimaryKey: (key) => setSelectedPrimaryKey(key ?? NO_PRIMARY_KEY),
       setColumnType,
       setColumnSpreadTracking,
+      setColumnSpreadBounds,
       setColumnNullTracking,
       setDateFormat,
       setDecimalSeparator,
@@ -2284,6 +2325,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       loadDemo,
       setColumnType,
       setColumnSpreadTracking,
+      setColumnSpreadBounds,
       setColumnNullTracking,
       setDateFormat,
       setDecimalSeparator,

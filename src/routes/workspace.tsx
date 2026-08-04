@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Download,
   Eye,
@@ -196,6 +198,8 @@ function WorkspacePage() {
         nonCanonicalDateCount: column.nonCanonicalDateCount,
         autoCorrectableDateCount: column.autoCorrectableDateCount,
         nonPreferredDecimalCount: column.nonPreferredDecimalCount,
+        lowerBound: column.numericStats?.lowerBound,
+        upperBound: column.numericStats?.upperBound,
         choiceOptions: column.choiceOptions,
         isPrimaryKey: workspace.analysis?.selectedPrimaryKey === column.key,
         progress: Math.round((column.trackNulls ? column.completenessRate : 1) * 100),
@@ -702,6 +706,7 @@ function WorkspacePage() {
                     customTypes={workspace.customTypes}
                     onColumnTypeChange={workspace.setColumnType}
                     onColumnSpreadTrackingChange={workspace.setColumnSpreadTracking}
+                    onColumnSpreadBoundsChange={workspace.setColumnSpreadBounds}
                     onColumnNullTrackingChange={workspace.setColumnNullTracking}
                     onNormalizeBooleanColumn={(key) =>
                       workspace.applyOperation({
@@ -758,7 +763,7 @@ function WorkspacePage() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2 text-[12px] text-[var(--color-brown)]">
-                  <span>
+                  <span className="hidden sm:inline">
                     {t("workspace.table.previewRange", {
                       start: previewStart,
                       end: previewEnd,
@@ -767,23 +772,36 @@ function WorkspacePage() {
                   </span>
                   <div className="flex items-center gap-2">
                     <SpButton
-                      size="sm"
+                      size="icon"
                       variant="ghost"
+                      title={t("workspace.table.previousHundred")}
+                      aria-label={t("workspace.table.previousHundred")}
                       disabled={workspace.previewPage === 0}
                       onClick={() => workspace.setPreviewPage(workspace.previewPage - 1)}
                     >
-                      {t("workspace.table.previousHundred")}
+                      <ChevronLeft className="h-4 w-4" />
                     </SpButton>
-                    <span className="text-[11px] text-[var(--color-brown)]/80">
-                      {t("workspace.table.previewPage", { current: currentPreviewPage, total: previewPageCount })}
+                    <span className="min-w-[150px] text-center leading-tight text-[11px] text-[var(--color-brown)]/80">
+                      <span className="block font-medium text-[var(--color-brown)]">
+                        {t("workspace.table.previewRange", {
+                          start: previewStart,
+                          end: previewEnd,
+                          total: analysis.rowCount,
+                        })}
+                      </span>
+                      <span className="block">
+                        {t("workspace.table.previewPage", { current: currentPreviewPage, total: previewPageCount })}
+                      </span>
                     </span>
                     <SpButton
-                      size="sm"
+                      size="icon"
                       variant="ghost"
+                      title={t("workspace.table.nextHundred")}
+                      aria-label={t("workspace.table.nextHundred")}
                       disabled={workspace.previewPage >= previewPageCount - 1}
                       onClick={() => workspace.setPreviewPage(workspace.previewPage + 1)}
                     >
-                      {t("workspace.table.nextHundred")}
+                      <ChevronRight className="h-4 w-4" />
                     </SpButton>
                   </div>
                 </div>

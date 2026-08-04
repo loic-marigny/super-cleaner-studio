@@ -20,6 +20,8 @@ export interface ColumnDef extends Pick<ColumnAnalysis, "key" | "name" | "type" 
   nonCanonicalDateCount?: number;
   autoCorrectableDateCount?: number;
   nonPreferredDecimalCount?: number;
+  lowerBound?: number;
+  upperBound?: number;
 }
 
 export interface CellFlag {
@@ -82,6 +84,11 @@ function parseLooseNumber(value: string) {
   if (!normalized || !/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatBoundInput(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) return "";
+  return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
 function parseLooseDate(value: string) {
@@ -194,6 +201,7 @@ export function Spreadsheet({
   customTypes,
   onColumnTypeChange,
   onColumnSpreadTrackingChange,
+  onColumnSpreadBoundsChange,
   onColumnNullTrackingChange,
   onNormalizeBooleanColumn,
   onNormalizeDateColumn,
@@ -212,6 +220,7 @@ export function Spreadsheet({
   customTypes?: CustomColumnTypeDefinition[];
   onColumnTypeChange?: (key: string, type: ColumnType) => void;
   onColumnSpreadTrackingChange?: (key: string, enabled: boolean) => void;
+  onColumnSpreadBoundsChange?: (key: string, bounds: { lowerBound?: number | null; upperBound?: number | null }) => void;
   onColumnNullTrackingChange?: (key: string, enabled: boolean) => void;
   onNormalizeBooleanColumn?: (key: string) => void;
   onNormalizeDateColumn?: (key: string) => void;
@@ -230,6 +239,7 @@ export function Spreadsheet({
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
   const [rowMenu, setRowMenu] = useState<{ rowIndex: number; x: number; y: number } | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
+  const [boundInputs, setBoundInputs] = useState<Record<string, { min: string; max: string }>>({});
   const rowMenuRef = useRef<HTMLDivElement | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(
     () => Object.fromEntries(columns.map((column) => [column.key, column.width ?? 168])),
@@ -269,7 +279,7 @@ export function Spreadsheet({
     type;
 
   const getTypeIcon = (type: ColumnType) => builtinTypeIcon[type as keyof typeof builtinTypeIcon] ?? <Type className="h-3 w-3" />;
-  const headerHeight = controlsVisible ? 140 : 84;
+  const headerHeight = controlsVisible ? 196 : 84;
 
   const updateFilter = (key: string, patch: Partial<ColumnFilterState>) => {
     setColumnFilters((current) => ({
@@ -302,6 +312,20 @@ export function Spreadsheet({
       setOpenFilterColumn(null);
     }
   }, [controlsVisible, openFilterColumn]);
+
+  useEffect(() => {
+    setBoundInputs((current) => {
+      const next = { ...current };
+      columns.forEach((column) => {
+        if (column.type !== "integer" && column.type !== "decimal") return;
+        next[column.key] = {
+          min: formatBoundInput(column.lowerBound),
+          max: formatBoundInput(column.upperBound),
+        };
+      });
+      return next;
+    });
+  }, [columns]);
 
   useEffect(() => {
     if (!rowMenu) return;
@@ -356,6 +380,10 @@ export function Spreadsheet({
             const isNumeric = column.type === "integer" || column.type === "decimal";
             const isDate = column.type === "date" || column.type === "datetime";
             const choiceValues = column.choiceOptions ?? [];
+            const boundInput = boundInputs[column.key] ?? {
+              min: formatBoundInput(column.lowerBound),
+              max: formatBoundInput(column.upperBound),
+            };
             return (
           <div
             key={column.key}
@@ -393,13 +421,13 @@ export function Spreadsheet({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="mt-1">
               <select
                 aria-label={t("workspace.table.columnTypeAria", { column: column.name })}
                 value={column.type}
                 onChange={(event) => onColumnTypeChange?.(column.key, event.target.value as ColumnType)}
                 className={cn(
-                  "min-w-0 flex-1 rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-brown-dark)]",
+                  "w-full min-w-0 rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-brown-dark)]",
                   "focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25",
                   column.isTypeOverridden && "border-[var(--color-accent)]",
                 )}
@@ -420,24 +448,28 @@ export function Spreadsheet({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
               <ProgressBar
                 value={column.progress}
                 size="xs"
                 tone={column.issues > 0 ? "warning" : column.progress >= 100 ? "success" : "accent"}
-                className="w-16 shrink-0"
+                className="min-w-0 flex-1"
               />
-            </div>
-            <div className="mt-1 flex min-h-[14px] items-center justify-end">
-              {column.issues > 0 ? (
-                <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-[var(--color-warning)]">
-                  <AlertTriangle className="h-3 w-3" />
-                  {column.issues}
-                </span>
-              ) : column.progress >= 100 ? (
-                <span className="flex shrink-0 items-center text-[var(--color-success)]">
-                  <CheckCircle2 className="h-3 w-3 shrink-0" />
-                </span>
-              ) : null}
+              <div className="flex min-h-[14px] shrink-0 items-center justify-end">
+                {column.issues > 0 ? (
+                  <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-[var(--color-warning)]">
+                    <AlertTriangle className="h-3 w-3" />
+                    {column.issues}
+                  </span>
+                ) : column.progress >= 100 ? (
+                  <span className="flex shrink-0 items-center text-[var(--color-success)]">
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  </span>
+                ) : (
+                  <span className="w-4 shrink-0" />
+                )}
+              </div>
             </div>
             </div>
 
@@ -468,59 +500,117 @@ export function Spreadsheet({
                   </label>
                 </div>
 
-                <div className="mt-1 flex min-h-[24px] flex-wrap items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onClearColumnErrors?.(column.key)}
-                    disabled={(column.incompatibleCount ?? 0) === 0}
-                    className={cn(
-                      "rounded border px-1.5 py-0.5 text-[10px] font-medium",
-                      (column.incompatibleCount ?? 0) > 0
-                        ? "border-[color-mix(in_oklab,var(--color-destructive)_38%,transparent)] bg-[color-mix(in_oklab,var(--color-destructive)_10%,var(--color-surface-raised))] text-[var(--color-destructive)]"
-                        : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)]/45",
-                    )}
-                    title={t("workspace.table.clearErrorsTitle")}
-                  >
-                    {t("workspace.table.clearErrors")}
-                  </button>
-                  {column.type === "boolean" && (column.nonCanonicalBooleanCount ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => onNormalizeBooleanColumn?.(column.key)}
-                      className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
-                      title={t("workspace.table.normalizeBooleanTitle")}
-                    >
-                      {t("workspace.table.normalizeBoolean")}
-                    </button>
-                  ) : (column.type === "date" || column.type === "datetime") && (column.autoCorrectableDateCount ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => onNormalizeDateColumn?.(column.key)}
-                      className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
-                      title={t("workspace.table.normalizeDateTitle")}
-                    >
-                      {t("workspace.table.normalizeDate")}
-                    </button>
+                <div className="mt-1 flex min-h-[24px] flex-wrap items-start gap-1">
+                  {isNumeric && (column.trackSpread ?? true) ? (
+                    <div className="flex items-end gap-1">
+                      <label className="block">
+                        <div className="mb-0.5 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.min")}</div>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={boundInput.min}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setBoundInputs((current) => ({
+                              ...current,
+                              [column.key]: {
+                                min: value,
+                                max: (current[column.key] ?? boundInput).max,
+                              },
+                            }));
+                            const parsed = parseLooseNumber(value);
+                            if (value.trim() === "" || parsed != null) {
+                              onColumnSpreadBoundsChange?.(column.key, {
+                                lowerBound: value.trim() === "" ? null : parsed,
+                              });
+                            }
+                          }}
+                          className="w-[72px] rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-brown-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25"
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-0.5 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.max")}</div>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={boundInput.max}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setBoundInputs((current) => ({
+                              ...current,
+                              [column.key]: {
+                                min: (current[column.key] ?? boundInput).min,
+                                max: value,
+                              },
+                            }));
+                            const parsed = parseLooseNumber(value);
+                            if (value.trim() === "" || parsed != null) {
+                              onColumnSpreadBoundsChange?.(column.key, {
+                                upperBound: value.trim() === "" ? null : parsed,
+                              });
+                            }
+                          }}
+                          className="w-[72px] rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] text-[var(--color-brown-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25"
+                        />
+                      </label>
+                    </div>
                   ) : null}
+                  <div className="flex min-w-full flex-wrap items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onClearColumnErrors?.(column.key)}
+                      disabled={(column.incompatibleCount ?? 0) === 0}
+                      className={cn(
+                        "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                        (column.incompatibleCount ?? 0) > 0
+                          ? "border-[color-mix(in_oklab,var(--color-destructive)_38%,transparent)] bg-[color-mix(in_oklab,var(--color-destructive)_10%,var(--color-surface-raised))] text-[var(--color-destructive)]"
+                          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)]/45",
+                      )}
+                      title={t("workspace.table.clearErrorsTitle")}
+                    >
+                      {t("workspace.table.clearErrors")}
+                    </button>
+                    {column.type === "boolean" && (column.nonCanonicalBooleanCount ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onNormalizeBooleanColumn?.(column.key)}
+                        className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                        title={t("workspace.table.normalizeBooleanTitle")}
+                      >
+                        {t("workspace.table.normalizeBoolean")}
+                      </button>
+                    ) : (column.type === "date" || column.type === "datetime") && (column.autoCorrectableDateCount ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onNormalizeDateColumn?.(column.key)}
+                        className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                        title={t("workspace.table.normalizeDateTitle")}
+                      >
+                        {t("workspace.table.normalizeDate")}
+                      </button>
+                    ) : null}
+                    <div className="ml-auto">
+                      <button
+                        type="button"
+                        onClick={() => setOpenFilterColumn((current) => (current === column.key ? null : column.key))}
+                        className={cn(
+                          "flex h-5 w-5 items-center justify-center rounded border bg-[var(--color-surface-raised)] text-[var(--color-brown)] shadow-sm hover:bg-[var(--color-surface)]",
+                          filterActive
+                            ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                            : "border-[var(--color-border-strong)]",
+                        )}
+                        title={t("workspace.filters.openTitle", { column: column.name })}
+                      >
+                        <Menu className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : null}
 
             {controlsVisible ? (
-            <div className="absolute right-2 bottom-2 z-30">
-              <button
-                type="button"
-                onClick={() => setOpenFilterColumn((current) => (current === column.key ? null : column.key))}
-                className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded border bg-[var(--color-surface-raised)] text-[var(--color-brown)] shadow-sm hover:bg-[var(--color-surface)]",
-                  filterActive
-                    ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                    : "border-[var(--color-border-strong)]",
-                )}
-                title={t("workspace.filters.openTitle", { column: column.name })}
-              >
-                <Menu className="h-3 w-3" />
-              </button>
+            <div className="absolute right-2 top-full z-30">
               {openFilterColumn === column.key ? (
                 <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-2 shadow-panel">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brown)]/70">
