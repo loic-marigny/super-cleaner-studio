@@ -204,6 +204,7 @@ export function Spreadsheet({
   onColumnSpreadBoundsChange,
   onColumnNullTrackingChange,
   onNormalizeBooleanColumn,
+  normalizeBooleanTitle,
   onNormalizeDateColumn,
   onClearColumnErrors,
   onRemoveColumn,
@@ -223,6 +224,7 @@ export function Spreadsheet({
   onColumnSpreadBoundsChange?: (key: string, bounds: { lowerBound?: number | null; upperBound?: number | null }) => void;
   onColumnNullTrackingChange?: (key: string, enabled: boolean) => void;
   onNormalizeBooleanColumn?: (key: string) => void;
+  normalizeBooleanTitle?: string;
   onNormalizeDateColumn?: (key: string) => void;
   onClearColumnErrors?: (key: string) => void;
   onRemoveColumn?: (key: string) => void;
@@ -575,7 +577,7 @@ export function Spreadsheet({
                         type="button"
                         onClick={() => onNormalizeBooleanColumn?.(column.key)}
                         className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
-                        title={t("workspace.table.normalizeBooleanTitle")}
+                        title={normalizeBooleanTitle ?? t("workspace.table.normalizeBooleanTitle", { format: "true / false" })}
                       >
                         {t("workspace.table.normalizeBoolean")}
                       </button>

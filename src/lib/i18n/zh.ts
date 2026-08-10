@@ -166,6 +166,7 @@ const zh = {
       dateFormat: "日期格式",
       decimals: "小数",
       bothDecimals: "两者都接受",
+      booleanDisplay: "布尔值",
       customType: "添加自定义类型",
       showSpread: "识别偏差",
       showNulls: "识别 null",

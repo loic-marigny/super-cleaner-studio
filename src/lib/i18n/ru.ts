@@ -169,6 +169,7 @@ const ru = {
       dateFormat: "Формат даты",
       decimals: "Десятичные",
       bothDecimals: "Оба",
+      booleanDisplay: "Булевы",
       customType: "Добавить пользовательский тип",
       showSpread: "Отслеживать выбросы",
       showNulls: "Отслеживать null",

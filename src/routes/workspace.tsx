@@ -32,8 +32,10 @@ import {
   describeIssueCount,
   describeSeverityTone,
   formatBytes,
+  getBooleanDisplayFormatLabel,
   getSeparatorLabel,
   useWorkspace,
+  type BooleanDisplayFormat,
   type DecimalSeparator,
   type CleaningOperation,
   type DateFormat,
@@ -158,6 +160,12 @@ function WorkspacePage() {
     { value: "comma", label: "," },
     { value: "both", label: t("workspace.toolbar.bothDecimals") },
   ];
+  const booleanDisplayOptions: Array<{ value: BooleanDisplayFormat; label: string }> = [
+    { value: "1-0", label: "0 / 1" },
+    { value: "true-false", label: "false / true" },
+    { value: "oui-non", label: "oui / non" },
+    { value: "yes-no", label: "yes / no" },
+  ];
   const sourceColumnValueCounts = useMemo(() => {
     if (!choiceSourceColumn || !workspace.previewDataset) return new Map<string, number>();
 
@@ -216,6 +224,8 @@ function WorkspacePage() {
   }, [workspace.analysis]);
 
   const analysis = workspace.analysis;
+  const pendingSheetNames = workspace.pendingSheetNames;
+  const booleanDisplayLabel = getBooleanDisplayFormatLabel(workspace.booleanDisplayFormat);
   const title = workspace.source?.fileName ?? t("workspace.noFileLoaded");
   const previewStart = analysis ? analysis.previewOffset + 1 : 0;
   const previewEnd = analysis ? Math.min(analysis.previewOffset + analysis.previewRows.length, analysis.rowCount) : 0;
@@ -303,7 +313,7 @@ function WorkspacePage() {
                       <span className="hidden sm:inline">{formatBytes(workspace.source.fileSize)}</span>
                     </>
                   ) : (
-                    <span>{t("workspace.csvOnlyLocal")}</span>
+                    <span>{t("workspace.localFilesOnly")}</span>
                   )}
                 </div>
               </div>
@@ -343,7 +353,9 @@ function WorkspacePage() {
               leadingIcon={<Download className="h-4 w-4" />}
               disabled={!analysis}
               onClick={() => {
-                setExportName(workspace.source?.fileName.replace(/\.csv$/i, ".clean.csv") ?? "super-cleaner.clean.csv");
+                setExportName(
+                  workspace.source?.fileName.replace(/\.(csv|xlsx|xls)$/i, ".clean.csv") ?? "super-cleaner.clean.csv",
+                );
                 setDownloadOpen(true);
               }}
             >
@@ -406,6 +418,24 @@ function WorkspacePage() {
               className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 py-0.5 text-[11px] text-[var(--color-brown-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25"
             >
               {decimalSeparatorOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1">
+            <label htmlFor="boolean-display" className="text-[11px] text-[var(--color-brown)]">
+              {t("workspace.toolbar.booleanDisplay")}
+            </label>
+            <select
+              id="boolean-display"
+              value={workspace.booleanDisplayFormat}
+              onChange={(event) => workspace.setBooleanDisplayFormat(event.target.value as BooleanDisplayFormat)}
+              className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-2 py-0.5 text-[11px] text-[var(--color-brown-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25"
+            >
+              {booleanDisplayOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -712,10 +742,11 @@ function WorkspacePage() {
                       workspace.applyOperation({
                         id: `normalize-bool-${key}`,
                         kind: "normalize-boolean-values",
-                        label: t("workspace.table.normalizeBooleanTitle"),
+                        label: t("workspace.table.normalizeBooleanTitle", { format: booleanDisplayLabel }),
                         columnKey: key,
                       })
                     }
+                    normalizeBooleanTitle={t("workspace.table.normalizeBooleanTitle", { format: booleanDisplayLabel })}
                     onNormalizeDateColumn={(key) =>
                       workspace.applyOperation({
                         id: `normalize-date-${key}`,
@@ -944,6 +975,32 @@ function WorkspacePage() {
           </>
         )}
       </div>
+
+      <Modal
+        open={pendingSheetNames.length > 0}
+        onClose={workspace.cancelImportSheetSelection}
+        title={t("workspace.modals.sheetPickerTitle")}
+        description={t("workspace.modals.sheetPickerDescription")}
+        footer={
+          <SpButton variant="ghost" onClick={workspace.cancelImportSheetSelection}>
+            {t("common.actions.cancel")}
+          </SpButton>
+        }
+      >
+        <div className="space-y-2">
+          {pendingSheetNames.map((sheetName) => (
+            <button
+              key={sheetName}
+              type="button"
+              onClick={() => void workspace.selectImportSheet(sheetName)}
+              className="flex w-full items-center justify-between rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-left hover:bg-[var(--color-surface-raised)]"
+            >
+              <span className="text-sm font-medium text-[var(--color-brown-dark)]">{sheetName}</span>
+              <ChevronRight className="h-4 w-4 text-[var(--color-brown)]" />
+            </button>
+          ))}
+        </div>
+      </Modal>
 
       <Modal
         open={issuesOpen}
