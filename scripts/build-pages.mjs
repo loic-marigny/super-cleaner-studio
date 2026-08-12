@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -43,7 +43,10 @@ if (buildResult.status !== 0) {
 }
 
 const outputDir = join(process.cwd(), ".output", "public");
-const serverEntry = join(process.cwd(), ".output", "server", "index.mjs");
+const legacyServerEntry = join(process.cwd(), ".output", "server", "index.mjs");
+const distClientDir = join(process.cwd(), "dist", "client");
+const distServerEntry = join(process.cwd(), "dist", "server", "server.js");
+const serverEntry = existsSync(legacyServerEntry) ? legacyServerEntry : distServerEntry;
 const indexFile = join(outputDir, "index.html");
 const notFoundFile = join(outputDir, "404.html");
 const noJekyllFile = join(outputDir, ".nojekyll");
@@ -51,6 +54,12 @@ const noJekyllFile = join(outputDir, ".nojekyll");
 if (!existsSync(serverEntry)) {
   console.error(`GitHub Pages build failed: missing ${serverEntry}`);
   process.exit(1);
+}
+
+if (existsSync(distClientDir)) {
+  rmSync(outputDir, { recursive: true, force: true });
+  mkdirSync(outputDir, { recursive: true });
+  cpSync(distClientDir, outputDir, { recursive: true });
 }
 
 const workerModule = await import(pathToFileURL(serverEntry).href);
