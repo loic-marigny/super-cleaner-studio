@@ -7,12 +7,11 @@ import {
   createRootRouteWithContext,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { AppHeader } from "../components/sp/AppHeader";
 import { withBase } from "../lib/app-base";
 import { I18nProvider, translateGlobal, useI18n } from "../lib/i18n";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { WorkspaceProvider } from "../lib/workspace";
 
 function NotFoundComponent() {
@@ -43,10 +42,6 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   const { t } = useI18n();
-
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-4">
@@ -97,7 +92,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: withBase("favicon.ico"), type: "image/x-icon" },
+      { rel: "icon", href: withBase("SC_LOGO.png"), type: "image/png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
