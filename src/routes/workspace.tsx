@@ -1,5 +1,5 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -28,6 +28,7 @@ import { TextField } from "@/components/sp/TextField";
 import { Spreadsheet, type ColumnDef } from "@/components/sp/Spreadsheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { translateGlobal, useI18n } from "@/lib/i18n";
+import { buildSiteUrl } from "@/lib/site-url";
 import {
   describeIssueCount,
   describeSeverityTone,
@@ -95,15 +96,22 @@ function buildIssuePreview(issue: IssueSummary, analysis: NonNullable<ReturnType
 }
 
 export const Route = createFileRoute("/workspace")({
-  head: () => ({
-    meta: [
+  head: () => {
+    const canonical = buildSiteUrl("/workspace");
+
+    return {
+      meta: [
       { title: translateGlobal("workspace.meta.title") },
       {
         name: "description",
         content: translateGlobal("workspace.meta.description"),
       },
+      { name: "robots", content: "noindex, follow" },
+      ...(canonical ? [{ property: "og:url", content: canonical }] : []),
     ],
-  }),
+      links: canonical ? [{ rel: "canonical", href: canonical }] : [],
+    };
+  },
   component: WorkspacePage,
 });
 
@@ -112,12 +120,15 @@ function WorkspacePage() {
   const { t } = useI18n();
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("csv");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [exportName, setExportName] = useState("");
   const [editingCell, setEditingCell] = useState<{ rowIndex: number; columnKey: string } | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<IssueSummary | null>(null);
   const [selectedAction, setSelectedAction] = useState<CleaningOperation | null>(null);
   const [expandedIssueIds, setExpandedIssueIds] = useState<string[]>([]);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
+  const [filterBusy, setFilterBusy] = useState(false);
   const [choiceTypeOpen, setChoiceTypeOpen] = useState(false);
   const [choiceBuilderOpen, setChoiceBuilderOpen] = useState(false);
   const [patternBuilderOpen, setPatternBuilderOpen] = useState(false);
@@ -201,8 +212,12 @@ function WorkspacePage() {
         isTypeOverridden: column.isTypeOverridden,
         trackSpread: column.trackSpread,
         trackNulls: column.trackNulls,
+        positiveOnly: column.positiveOnly,
         incompatibleCount: column.incompatibleCount,
+        integerAutoCorrectableCount: column.integerAutoCorrectableCount,
+        negativeValueCount: column.negativeValueCount,
         nonCanonicalBooleanCount: column.nonCanonicalBooleanCount,
+        booleanDisplayMismatchCount: column.booleanDisplayMismatchCount,
         nonCanonicalDateCount: column.nonCanonicalDateCount,
         autoCorrectableDateCount: column.autoCorrectableDateCount,
         nonPreferredDecimalCount: column.nonPreferredDecimalCount,
@@ -215,8 +230,9 @@ function WorkspacePage() {
           Number(hasTypeIssue) +
           Number(hasNullIssue) +
           Number(hasOutlierIssue) +
+          Number((column.negativeValueCount ?? 0) > 0) +
           Number((column.nonPreferredDecimalCount ?? 0) > 0) +
-          Number((column.nonCanonicalBooleanCount ?? 0) > 0) +
+          Number((column.booleanDisplayMismatchCount ?? 0) > 0) +
           Number((column.nonCanonicalDateCount ?? 0) > 0),
         missingCount: column.missingCount,
       };
@@ -294,6 +310,8 @@ function WorkspacePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <CursorLoadingIndicator active={workspace.status === "importing" || workspace.isBusy || filterBusy} />
+
       <div className="relative z-50 overflow-visible border-b border-[var(--color-border)] bg-[var(--color-surface-raised)]/80 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:px-5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -356,6 +374,7 @@ function WorkspacePage() {
                 setExportName(
                   workspace.source?.fileName.replace(/\.(csv|xlsx|xls)$/i, ".clean.csv") ?? "super-cleaner.clean.csv",
                 );
+                setExportFormat("csv");
                 setDownloadOpen(true);
               }}
             >
@@ -727,17 +746,20 @@ function WorkspacePage() {
           </section>
         ) : (
           <>
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className={`grid gap-3 ${summaryCollapsed ? "lg:grid-cols-[minmax(0,1fr)_52px]" : "lg:grid-cols-[minmax(0,1fr)_320px]"}`}>
               <div className="flex min-h-0 flex-col gap-2">
                 <div className="min-h-0 h-[clamp(280px,56vh,680px)]">
                   <Spreadsheet
                     columns={spreadsheetColumns}
                     rows={analysis.previewRows}
                     customTypes={workspace.customTypes}
+                    onColumnNameChange={workspace.setColumnName}
+                    onBusyChange={setFilterBusy}
                     onColumnTypeChange={workspace.setColumnType}
                     onColumnSpreadTrackingChange={workspace.setColumnSpreadTracking}
                     onColumnSpreadBoundsChange={workspace.setColumnSpreadBounds}
                     onColumnNullTrackingChange={workspace.setColumnNullTracking}
+                    onColumnPositiveTrackingChange={workspace.setColumnPositiveTracking}
                     onNormalizeBooleanColumn={(key) =>
                       workspace.applyOperation({
                         id: `normalize-bool-${key}`,
@@ -747,6 +769,7 @@ function WorkspacePage() {
                       })
                     }
                     normalizeBooleanTitle={t("workspace.table.normalizeBooleanTitle", { format: booleanDisplayLabel })}
+                    onFiltersChange={() => workspace.setPreviewPage(0)}
                     onNormalizeDateColumn={(key) =>
                       workspace.applyOperation({
                         id: `normalize-date-${key}`,
@@ -760,6 +783,22 @@ function WorkspacePage() {
                         id: `nullify-errors-${key}`,
                         kind: "nullify-incompatible",
                         label: t("workspace.table.clearErrors"),
+                        columnKey: key,
+                      })
+                    }
+                    onRoundIntegerColumn={(key) =>
+                      workspace.applyOperation({
+                        id: `round-integer-${key}`,
+                        kind: "round-incompatible-integers",
+                        label: t("workspace.table.roundIntegers"),
+                        columnKey: key,
+                      })
+                    }
+                    onTruncateIntegerColumn={(key) =>
+                      workspace.applyOperation({
+                        id: `truncate-integer-${key}`,
+                        kind: "truncate-incompatible-integers",
+                        label: t("workspace.table.truncateIntegers"),
                         columnKey: key,
                       })
                     }
@@ -837,10 +876,19 @@ function WorkspacePage() {
                   </div>
                 </div>
               </div>
-              <aside className="space-y-3">
+              <aside className={summaryCollapsed ? "hidden" : "grid gap-3 sm:grid-cols-2 lg:grid-cols-1"}>
                 <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
                   <div className="flex items-center justify-between gap-2">
                     <h2 className="text-sm font-semibold text-[var(--color-brown-dark)]">{t("workspace.summary.title")}</h2>
+                    <button
+                      type="button"
+                      onClick={() => setSummaryCollapsed(true)}
+                      className="hidden h-7 w-7 items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)] hover:bg-[var(--color-surface-raised)] lg:flex"
+                      title={t("workspace.summary.collapsePanel")}
+                      aria-label={t("workspace.summary.collapsePanel")}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
                     <Metric
@@ -923,7 +971,7 @@ function WorkspacePage() {
                 </section>
 
                 {analysis.duplicateSummary && (
-                  <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel">
+                  <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-4 shadow-panel sm:col-span-2 lg:col-span-1">
                     <div className="text-sm font-semibold text-[var(--color-brown-dark)]">{t("workspace.summary.duplicateTitle")}</div>
                     <p className="mt-2 text-sm text-[var(--color-brown)]">
                       {t("workspace.summary.duplicateDescription", {
@@ -941,6 +989,27 @@ function WorkspacePage() {
                   </section>
                 )}
               </aside>
+              {summaryCollapsed ? (
+                <aside className="hidden lg:block">
+                  <button
+                    type="button"
+                    onClick={() => setSummaryCollapsed(false)}
+                    className="flex h-full min-h-[280px] w-full items-center justify-center rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] text-[var(--color-brown-dark)] shadow-panel hover:bg-[var(--color-surface)]"
+                    title={t("workspace.summary.expandPanel")}
+                    aria-label={t("workspace.summary.expandPanel")}
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <ChevronLeft className="h-4 w-4" />
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brown)]/75"
+                        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+                      >
+                        {t("workspace.summary.title")}
+                      </span>
+                    </div>
+                  </button>
+                </aside>
+              ) : null}
             </div>
 
             <CollapsiblePanel
@@ -1211,7 +1280,11 @@ function WorkspacePage() {
               variant="success"
               leadingIcon={<Save className="h-4 w-4" />}
               onClick={() => {
-                workspace.exportCsv(exportName);
+                if (exportFormat === "xlsx") {
+                  workspace.exportXlsx(exportName);
+                } else {
+                  workspace.exportCsv(exportName);
+                }
                 setDownloadOpen(false);
               }}
             >
@@ -1221,11 +1294,37 @@ function WorkspacePage() {
         }
       >
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="export-format" className="text-sm font-medium text-[var(--color-brown-dark)]">
+              {t("workspace.modals.exportFormat")}
+            </label>
+            <select
+              id="export-format"
+              value={exportFormat}
+              onChange={(event) => {
+                const nextFormat = event.target.value as "csv" | "xlsx";
+                setExportFormat(nextFormat);
+                setExportName((current) => {
+                  const baseName = (current || workspace.source?.fileName || "super-cleaner.clean").replace(
+                    /\.(csv|xlsx|xls)$/i,
+                    "",
+                  );
+                  return `${baseName}.${nextFormat === "xlsx" ? "xlsx" : "csv"}`;
+                });
+              }}
+              className="w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] px-3 py-2 text-sm text-[var(--color-brown-dark)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]/25"
+            >
+              <option value="csv">{t("workspace.modals.exportFormatCsv")}</option>
+              <option value="xlsx">{t("workspace.modals.exportFormatXlsx")}</option>
+            </select>
+          </div>
           <TextField
             label={t("workspace.modals.fileName")}
             value={exportName}
             onChange={(event) => setExportName(event.target.value)}
-            hint={t("workspace.modals.fileNameHint")}
+            hint={t(
+              exportFormat === "xlsx" ? "workspace.modals.fileNameHintXlsx" : "workspace.modals.fileNameHintCsv",
+            )}
           />
           <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-brown)]">
             {t("workspace.modals.localNotice")}
@@ -1259,6 +1358,39 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
         <dt className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-brown)]/70">{label}</dt>
       )}
       <dd className="mt-1 text-sm font-semibold text-[var(--color-brown-dark)]">{value}</dd>
+    </div>
+  );
+}
+
+function CursorLoadingIndicator({ active }: { active: boolean }) {
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      setPosition(null);
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      setPosition({ x: event.clientX, y: event.clientY });
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+    };
+  }, [active]);
+
+  if (!active || !position) return null;
+
+  return (
+    <div
+      className="pointer-events-none fixed z-[220] transition-transform duration-75"
+      style={{ left: position.x + 16, top: position.y + 16 }}
+      aria-hidden="true"
+    >
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-secondary)]/35 border-t-[var(--color-accent)] shadow-sm" />
     </div>
   );
 }

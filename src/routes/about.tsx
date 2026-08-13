@@ -2,17 +2,24 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Cpu, EyeOff, Feather, Github, Mail, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/sp/Logo";
 import { translateGlobal, useI18n } from "@/lib/i18n";
+import { buildSiteUrl } from "@/lib/site-url";
 
 export const Route = createFileRoute("/about")({
-  head: () => ({
-    meta: [
+  head: () => {
+    const canonical = buildSiteUrl("/about");
+
+    return {
+      meta: [
       { title: translateGlobal("about.meta.title") },
       {
         name: "description",
         content: translateGlobal("about.meta.description"),
       },
+      ...(canonical ? [{ property: "og:url", content: canonical }] : []),
     ],
-  }),
+      links: canonical ? [{ rel: "canonical", href: canonical }] : [],
+    };
+  },
   component: AboutPage,
 });
 

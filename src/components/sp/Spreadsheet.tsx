@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import { AlertTriangle, Binary, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock3, Hash, KeyRound, Menu, Pencil, Type, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -11,15 +11,19 @@ export interface ColumnDef extends Pick<ColumnAnalysis, "key" | "name" | "type" 
   issues: number;
   isPrimaryKey?: boolean;
   incompatibleCount?: number;
+  integerAutoCorrectableCount?: number;
   width?: number;
   inferredType?: ColumnType;
   isTypeOverridden?: boolean;
   trackSpread?: boolean;
   trackNulls?: boolean;
+  positiveOnly?: boolean;
   nonCanonicalBooleanCount?: number;
+  booleanDisplayMismatchCount?: number;
   nonCanonicalDateCount?: number;
   autoCorrectableDateCount?: number;
   nonPreferredDecimalCount?: number;
+  negativeValueCount?: number;
   lowerBound?: number;
   upperBound?: number;
 }
@@ -199,14 +203,20 @@ export function Spreadsheet({
   rows,
   className,
   customTypes,
+  onColumnNameChange,
   onColumnTypeChange,
   onColumnSpreadTrackingChange,
   onColumnSpreadBoundsChange,
   onColumnNullTrackingChange,
+  onColumnPositiveTrackingChange,
   onNormalizeBooleanColumn,
   normalizeBooleanTitle,
+  onBusyChange,
+  onFiltersChange,
   onNormalizeDateColumn,
   onClearColumnErrors,
+  onRoundIntegerColumn,
+  onTruncateIntegerColumn,
   onRemoveColumn,
   onRemoveRow,
   onPromoteRowToHeader,
@@ -219,14 +229,20 @@ export function Spreadsheet({
   rows: RowData[];
   className?: string;
   customTypes?: CustomColumnTypeDefinition[];
+  onColumnNameChange?: (key: string, name: string) => void;
   onColumnTypeChange?: (key: string, type: ColumnType) => void;
   onColumnSpreadTrackingChange?: (key: string, enabled: boolean) => void;
   onColumnSpreadBoundsChange?: (key: string, bounds: { lowerBound?: number | null; upperBound?: number | null }) => void;
   onColumnNullTrackingChange?: (key: string, enabled: boolean) => void;
+  onColumnPositiveTrackingChange?: (key: string, enabled: boolean) => void;
   onNormalizeBooleanColumn?: (key: string) => void;
   normalizeBooleanTitle?: string;
+  onBusyChange?: (busy: boolean) => void;
+  onFiltersChange?: () => void;
   onNormalizeDateColumn?: (key: string) => void;
   onClearColumnErrors?: (key: string) => void;
+  onRoundIntegerColumn?: (key: string) => void;
+  onTruncateIntegerColumn?: (key: string) => void;
   onRemoveColumn?: (key: string) => void;
   onRemoveRow?: (rowIndex: number) => void;
   onPromoteRowToHeader?: (rowIndex: number) => void;
@@ -238,11 +254,16 @@ export function Spreadsheet({
   const { t } = useI18n();
   const [selected, setSelected] = useState<{ r: number; c: number } | null>({ r: 0, c: 0 });
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [editingHeaderKey, setEditingHeaderKey] = useState<string | null>(null);
+  const [headerDraft, setHeaderDraft] = useState("");
   const [openFilterColumn, setOpenFilterColumn] = useState<string | null>(null);
   const [rowMenu, setRowMenu] = useState<{ rowIndex: number; x: number; y: number } | null>(null);
+  const [filterMenuPosition, setFilterMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterState>>({});
   const [boundInputs, setBoundInputs] = useState<Record<string, { min: string; max: string }>>({});
+  const [isFilterPending, startFilterTransition] = useTransition();
   const rowMenuRef = useRef<HTMLDivElement | null>(null);
+  const filterMenuRef = useRef<HTMLDivElement | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(
     () => Object.fromEntries(columns.map((column) => [column.key, column.width ?? 168])),
   );
@@ -281,23 +302,62 @@ export function Spreadsheet({
     type;
 
   const getTypeIcon = (type: ColumnType) => builtinTypeIcon[type as keyof typeof builtinTypeIcon] ?? <Type className="h-3 w-3" />;
-  const headerHeight = controlsVisible ? 196 : 84;
+  const submitHeaderEdit = (columnKey: string) => {
+    if (editingHeaderKey !== columnKey) return;
+    onColumnNameChange?.(columnKey, headerDraft);
+    setEditingHeaderKey(null);
+    setHeaderDraft("");
+  };
+
+  const cancelHeaderEdit = () => {
+    setEditingHeaderKey(null);
+    setHeaderDraft("");
+  };
+
+  const headerHeight = controlsVisible ? 228 : 84;
+  const openFilterColumnDef = openFilterColumn ? columns.find((column) => column.key === openFilterColumn) ?? null : null;
+  const openFilterState = openFilterColumn ? (columnFilters[openFilterColumn] ?? defaultFilterState()) : null;
+  const openFilterMenu = (key: string, trigger: HTMLButtonElement) => {
+    if (openFilterColumn === key) {
+      setOpenFilterColumn(null);
+      setFilterMenuPosition(null);
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = 208;
+    const viewportPadding = 8;
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - menuWidth),
+      window.innerWidth - menuWidth - viewportPadding,
+    );
+    const top = Math.min(rect.bottom + 8, window.innerHeight - viewportPadding);
+
+    setOpenFilterColumn(key);
+    setFilterMenuPosition({ left, top });
+  };
 
   const updateFilter = (key: string, patch: Partial<ColumnFilterState>) => {
-    setColumnFilters((current) => ({
-      ...current,
-      [key]: {
-        ...(current[key] ?? defaultFilterState()),
-        ...patch,
-      },
-    }));
+    startFilterTransition(() => {
+      setColumnFilters((current) => ({
+        ...current,
+        [key]: {
+          ...(current[key] ?? defaultFilterState()),
+          ...patch,
+        },
+      }));
+      onFiltersChange?.();
+    });
   };
 
   const resetFilter = (key: string) => {
-    setColumnFilters((current) => {
-      const next = { ...current };
-      delete next[key];
-      return next;
+    startFilterTransition(() => {
+      setColumnFilters((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      onFiltersChange?.();
     });
   };
 
@@ -310,8 +370,13 @@ export function Spreadsheet({
   );
 
   useEffect(() => {
+    onBusyChange?.(isFilterPending);
+  }, [isFilterPending, onBusyChange]);
+
+  useEffect(() => {
     if (!controlsVisible && openFilterColumn) {
       setOpenFilterColumn(null);
+      setFilterMenuPosition(null);
     }
   }, [controlsVisible, openFilterColumn]);
 
@@ -346,6 +411,33 @@ export function Spreadsheet({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [rowMenu]);
+
+  useEffect(() => {
+    if (!openFilterColumn) return;
+
+    const closeFilterMenu = (event: PointerEvent) => {
+      if (filterMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setOpenFilterColumn(null);
+      setFilterMenuPosition(null);
+    };
+
+    const closeOnViewportChange = () => {
+      setOpenFilterColumn(null);
+      setFilterMenuPosition(null);
+    };
+
+    window.addEventListener("pointerdown", closeFilterMenu);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    window.addEventListener("resize", closeOnViewportChange);
+
+    return () => {
+      window.removeEventListener("pointerdown", closeFilterMenu);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+      window.removeEventListener("resize", closeOnViewportChange);
+    };
+  }, [openFilterColumn]);
 
   return (
     <div
@@ -417,9 +509,38 @@ export function Spreadsheet({
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className="text-[var(--color-brown)]">{getTypeIcon(column.type)}</span>
                 {column.isPrimaryKey ? <KeyRound className="h-3 w-3 shrink-0 text-[var(--color-accent)]" /> : null}
-                <span className="truncate text-[12.5px] font-semibold text-[var(--color-brown-dark)]">
-                  {column.name}
-                </span>
+                {editingHeaderKey === column.key ? (
+                  <input
+                    type="text"
+                    value={headerDraft}
+                    onChange={(event) => setHeaderDraft(event.target.value)}
+                    onBlur={() => submitHeaderEdit(column.key)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        submitHeaderEdit(column.key);
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelHeaderEdit();
+                      }
+                    }}
+                    autoFocus
+                    className="min-w-0 flex-1 bg-transparent text-[12.5px] font-semibold text-[var(--color-brown-dark)] outline-none"
+                    aria-label={t("workspace.table.editColumnName")}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingHeaderKey(column.key);
+                      setHeaderDraft(column.name);
+                    }}
+                    className="truncate cursor-text text-left text-[12.5px] font-semibold text-[var(--color-brown-dark)]"
+                    title={t("workspace.table.editColumnName")}
+                  >
+                    {column.name}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -490,6 +611,18 @@ export function Spreadsheet({
                       <span>{t("workspace.toolbar.showSpread")}</span>
                     </label>
                   ) : null}
+                  {isNumeric ? (
+                    <label className="flex items-center gap-1.5 text-[10px] text-[var(--color-brown)]">
+                      <input
+                        type="checkbox"
+                        checked={column.positiveOnly ?? false}
+                        onChange={(event) => onColumnPositiveTrackingChange?.(column.key, event.target.checked)}
+                        className="h-3 w-3 rounded border-[var(--color-border-strong)] text-[var(--color-accent)] focus:ring-[var(--color-ring)]/25"
+                        title={t("workspace.toolbar.positiveOnly")}
+                      />
+                      <span>{t("workspace.toolbar.positiveOnly")}</span>
+                    </label>
+                  ) : null}
                   <label className="flex items-center gap-1.5 text-[10px] text-[var(--color-brown)]">
                     <input
                       type="checkbox"
@@ -558,6 +691,38 @@ export function Spreadsheet({
                     </div>
                   ) : null}
                   <div className="flex min-w-full flex-wrap items-center gap-1">
+                    {column.type === "integer" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onRoundIntegerColumn?.(column.key)}
+                          disabled={(column.integerAutoCorrectableCount ?? 0) === 0}
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                            (column.integerAutoCorrectableCount ?? 0) > 0
+                              ? "border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                              : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)]/45",
+                          )}
+                          title={t("workspace.table.roundIntegersTitle")}
+                        >
+                          {t("workspace.table.roundIntegers")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onTruncateIntegerColumn?.(column.key)}
+                          disabled={(column.integerAutoCorrectableCount ?? 0) === 0}
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                            (column.integerAutoCorrectableCount ?? 0) > 0
+                              ? "border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                              : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)]/45",
+                          )}
+                          title={t("workspace.table.truncateIntegersTitle")}
+                        >
+                          {t("workspace.table.truncateIntegers")}
+                        </button>
+                      </>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onClearColumnErrors?.(column.key)}
@@ -572,11 +737,17 @@ export function Spreadsheet({
                     >
                       {t("workspace.table.clearErrors")}
                     </button>
-                    {column.type === "boolean" && (column.nonCanonicalBooleanCount ?? 0) > 0 ? (
+                    {column.type === "boolean" ? (
                       <button
                         type="button"
                         onClick={() => onNormalizeBooleanColumn?.(column.key)}
-                        className="rounded border border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] px-1.5 py-0.5 text-[10px] font-medium text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                        disabled={(column.booleanDisplayMismatchCount ?? 0) === 0}
+                        className={cn(
+                          "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                          (column.booleanDisplayMismatchCount ?? 0) > 0
+                            ? "border-[color-mix(in_oklab,var(--color-warning)_45%,transparent)] bg-[color-mix(in_oklab,var(--color-warning)_16%,var(--color-surface-raised))] text-[color-mix(in_oklab,var(--color-warning)_80%,var(--color-brown-dark))]"
+                            : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brown)]/45",
+                        )}
                         title={normalizeBooleanTitle ?? t("workspace.table.normalizeBooleanTitle", { format: "true / false" })}
                       >
                         {t("workspace.table.normalizeBoolean")}
@@ -594,7 +765,7 @@ export function Spreadsheet({
                     <div className="ml-auto">
                       <button
                         type="button"
-                        onClick={() => setOpenFilterColumn((current) => (current === column.key ? null : column.key))}
+                        onClick={(event) => openFilterMenu(column.key, event.currentTarget)}
                         className={cn(
                           "flex h-5 w-5 items-center justify-center rounded border bg-[var(--color-surface-raised)] text-[var(--color-brown)] shadow-sm hover:bg-[var(--color-surface)]",
                           filterActive
@@ -611,147 +782,7 @@ export function Spreadsheet({
               </div>
             ) : null}
 
-            {controlsVisible ? (
-            <div className="absolute right-2 top-full z-30">
-              {openFilterColumn === column.key ? (
-                <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-2 shadow-panel">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brown)]/70">
-                    {t("workspace.filters.title")}
-                  </div>
-                  <div className="mt-2 space-y-1.5 text-[11px] text-[var(--color-brown-dark)]">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={filter.errorsOnly}
-                        onChange={(event) => updateFilter(column.key, { errorsOnly: event.target.checked })}
-                        className="h-3 w-3"
-                      />
-                      <span>{t("workspace.filters.errorsOnly")}</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={filter.warningsOnly}
-                        onChange={(event) => updateFilter(column.key, { warningsOnly: event.target.checked })}
-                        className="h-3 w-3"
-                      />
-                      <span>{t("workspace.filters.warningsOnly")}</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={filter.nullsOnly}
-                        onChange={(event) => updateFilter(column.key, { nullsOnly: event.target.checked })}
-                        className="h-3 w-3"
-                      />
-                      <span>{t("workspace.filters.nullsOnly")}</span>
-                    </label>
-                    {isBoolean ? (
-                      <div>
-                        <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.value")}</div>
-                        <select
-                          value={filter.booleanValue}
-                          onChange={(event) => updateFilter(column.key, { booleanValue: event.target.value as ColumnFilterState["booleanValue"] })}
-                          className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                        >
-                          <option value="all">{t("workspace.filters.all")}</option>
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      </div>
-                    ) : isNumeric ? (
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <div>
-                          <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.min")}</div>
-                          <input
-                            type="number"
-                            value={filter.minValue}
-                            onChange={(event) => updateFilter(column.key, { minValue: event.target.value })}
-                            className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                          />
-                        </div>
-                        <div>
-                          <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.max")}</div>
-                          <input
-                            type="number"
-                            value={filter.maxValue}
-                            onChange={(event) => updateFilter(column.key, { maxValue: event.target.value })}
-                            className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                          />
-                        </div>
-                      </div>
-                    ) : isDate ? (
-                      <div className="grid grid-cols-1 gap-1.5">
-                        <div>
-                          <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.from")}</div>
-                          <input
-                            type="date"
-                            value={filter.dateFrom}
-                            onChange={(event) => updateFilter(column.key, { dateFrom: event.target.value })}
-                            className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                          />
-                        </div>
-                        <div>
-                          <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.to")}</div>
-                          <input
-                            type="date"
-                            value={filter.dateTo}
-                            onChange={(event) => updateFilter(column.key, { dateTo: event.target.value })}
-                            className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                          />
-                        </div>
-                      </div>
-                    ) : isChoice ? (
-                      <div>
-                        <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.value")}</div>
-                        <select
-                          value={filter.exactValue}
-                          onChange={(event) => updateFilter(column.key, { exactValue: event.target.value })}
-                          className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                        >
-                          <option value="">{t("workspace.filters.all")}</option>
-                          {choiceValues.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">
-                          {isPattern ? t("workspace.filters.pattern") : t("workspace.filters.text")}
-                        </div>
-                        <input
-                          type="text"
-                          value={filter.textQuery}
-                          onChange={(event) => updateFilter(column.key, { textQuery: event.target.value })}
-                          placeholder={isPattern ? t("workspace.filters.containsPlaceholder") : t("workspace.filters.searchPlaceholder")}
-                          className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
-                        />
-                      </div>
-                    )}
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => resetFilter(column.key)}
-                        className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-[10px] font-medium text-[var(--color-brown-dark)]"
-                      >
-                        {t("workspace.filters.reset")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOpenFilterColumn(null)}
-                        className="rounded border border-[var(--color-accent)] bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-surface-raised))] px-2 py-1 text-[10px] font-medium text-[var(--color-accent)]"
-                      >
-                        {t("common.actions.ok")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            ) : null}
+            {controlsVisible ? <div /> : null}
 
             <div
               onMouseDown={(event) => startResize(column.key, event.clientX, widths[column.key] ?? 168)}
@@ -784,6 +815,150 @@ export function Spreadsheet({
           />
         ))}
       </div>
+      {controlsVisible && openFilterColumnDef && openFilterState && filterMenuPosition ? (
+        <div
+          ref={filterMenuRef}
+          className="fixed z-[220] w-52 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-raised)] p-2 shadow-panel"
+          style={filterMenuPosition}
+        >
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-brown)]/70">
+            {t("workspace.filters.title")}
+          </div>
+          <div className="mt-2 space-y-1.5 text-[11px] text-[var(--color-brown-dark)]">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={openFilterState.errorsOnly}
+                onChange={(event) => updateFilter(openFilterColumnDef.key, { errorsOnly: event.target.checked })}
+                className="h-3 w-3"
+              />
+              <span>{t("workspace.filters.errorsOnly")}</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={openFilterState.warningsOnly}
+                onChange={(event) => updateFilter(openFilterColumnDef.key, { warningsOnly: event.target.checked })}
+                className="h-3 w-3"
+              />
+              <span>{t("workspace.filters.warningsOnly")}</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={openFilterState.nullsOnly}
+                onChange={(event) => updateFilter(openFilterColumnDef.key, { nullsOnly: event.target.checked })}
+                className="h-3 w-3"
+              />
+              <span>{t("workspace.filters.nullsOnly")}</span>
+            </label>
+            {openFilterColumnDef.type === "boolean" ? (
+              <div>
+                <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.value")}</div>
+                <select
+                  value={openFilterState.booleanValue}
+                  onChange={(event) => updateFilter(openFilterColumnDef.key, { booleanValue: event.target.value as ColumnFilterState["booleanValue"] })}
+                  className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                >
+                  <option value="all">{t("workspace.filters.all")}</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </div>
+            ) : openFilterColumnDef.type === "integer" || openFilterColumnDef.type === "decimal" ? (
+              <div className="grid grid-cols-2 gap-1.5">
+                <div>
+                  <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.min")}</div>
+                  <input
+                    type="number"
+                    value={openFilterState.minValue}
+                    onChange={(event) => updateFilter(openFilterColumnDef.key, { minValue: event.target.value })}
+                    className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.max")}</div>
+                  <input
+                    type="number"
+                    value={openFilterState.maxValue}
+                    onChange={(event) => updateFilter(openFilterColumnDef.key, { maxValue: event.target.value })}
+                    className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                  />
+                </div>
+              </div>
+            ) : openFilterColumnDef.type === "date" || openFilterColumnDef.type === "datetime" ? (
+              <div className="grid grid-cols-1 gap-1.5">
+                <div>
+                  <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.from")}</div>
+                  <input
+                    type="date"
+                    value={openFilterState.dateFrom}
+                    onChange={(event) => updateFilter(openFilterColumnDef.key, { dateFrom: event.target.value })}
+                    className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.to")}</div>
+                  <input
+                    type="date"
+                    value={openFilterState.dateTo}
+                    onChange={(event) => updateFilter(openFilterColumnDef.key, { dateTo: event.target.value })}
+                    className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                  />
+                </div>
+              </div>
+            ) : isChoiceType(openFilterColumnDef.type) ? (
+              <div>
+                <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">{t("workspace.filters.value")}</div>
+                <select
+                  value={openFilterState.exactValue}
+                  onChange={(event) => updateFilter(openFilterColumnDef.key, { exactValue: event.target.value })}
+                  className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                >
+                  <option value="">{t("workspace.filters.all")}</option>
+                  {(openFilterColumnDef.choiceOptions ?? []).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-1 text-[10px] text-[var(--color-brown)]/75">
+                  {isPatternType(openFilterColumnDef.type) ? t("workspace.filters.pattern") : t("workspace.filters.text")}
+                </div>
+                <input
+                  type="text"
+                  value={openFilterState.textQuery}
+                  onChange={(event) => updateFilter(openFilterColumnDef.key, { textQuery: event.target.value })}
+                  placeholder={isPatternType(openFilterColumnDef.type) ? t("workspace.filters.containsPlaceholder") : t("workspace.filters.searchPlaceholder")}
+                  className="h-7 w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-[11px]"
+                />
+              </div>
+            )}
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => resetFilter(openFilterColumnDef.key)}
+                className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-[10px] font-medium text-[var(--color-brown-dark)]"
+              >
+                {t("workspace.filters.reset")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenFilterColumn(null);
+                  setFilterMenuPosition(null);
+                }}
+                className="rounded border border-[var(--color-accent)] bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-surface-raised))] px-2 py-1 text-[10px] font-medium text-[var(--color-accent)]"
+              >
+                {t("common.actions.ok")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {rowMenu ? (
         <div
           ref={rowMenuRef}

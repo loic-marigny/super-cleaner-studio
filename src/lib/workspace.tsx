@@ -99,8 +99,11 @@ export interface ColumnAnalysis {
   isTypeOverridden: boolean;
   trackSpread: boolean;
   trackNulls: boolean;
+  positiveOnly: boolean;
   compatibilityRate: number;
   incompatibleCount: number;
+  integerAutoCorrectableCount?: number;
+  negativeValueCount?: number;
   incompatibleSamples: string[];
   missingCount: number;
   missingRate: number;
@@ -113,6 +116,7 @@ export interface ColumnAnalysis {
   isEmpty: boolean;
   choiceOptions?: string[];
   nonCanonicalBooleanCount?: number;
+  booleanDisplayMismatchCount?: number;
   nonCanonicalDateCount?: number;
   autoCorrectableDateCount?: number;
   nonPreferredDecimalCount?: number;
@@ -149,6 +153,8 @@ export type OperationKind =
   | "promote-row-to-header"
   | "update-cell"
   | "nullify-incompatible"
+  | "round-incompatible-integers"
+  | "truncate-incompatible-integers"
   | "filter-incompatible-rows"
   | "nullify-outliers"
   | "normalize-boolean-values"
@@ -209,6 +215,8 @@ export interface AnalysisSummary {
     | null;
 }
 
+type ColumnNameOverrides = Partial<Record<string, string>>;
+
 interface DerivedWorkspace {
   dataset: Dataset;
   analysis: AnalysisSummary;
@@ -216,6 +224,7 @@ interface DerivedWorkspace {
 
 interface WorkspaceState {
   status: "idle" | "importing" | "ready" | "error";
+  isBusy: boolean;
   message: string;
   progress: number;
   source: ImportSummary | null;
@@ -235,14 +244,17 @@ interface WorkspaceState {
   cancelImportSheetSelection: () => void;
   loadDemo: () => Promise<void>;
   selectPrimaryKey: (key: string | null) => void;
+  setColumnName: (key: string, name: string) => void;
   setColumnType: (key: string, type: ColumnType) => void;
   setColumnSpreadTracking: (key: string, enabled: boolean) => void;
   setColumnSpreadBounds: (key: string, bounds: NumericBoundsOverride) => void;
   setColumnNullTracking: (key: string, enabled: boolean) => void;
+  setColumnPositiveTracking: (key: string, enabled: boolean) => void;
   setDateFormat: (format: DateFormat) => void;
   setDecimalSeparator: (separator: DecimalSeparator) => void;
   setBooleanDisplayFormat: (format: BooleanDisplayFormat) => void;
   setRemoveEmptyColumnsOnImport: (enabled: boolean) => void;
+  resetPreferences: () => void;
   setPreviewPage: (page: number) => void;
   createChoiceType: (name: string, options: string[]) => void;
   createStructuredStringType: (name: string, segments: StructuredStringSegment[]) => void;
@@ -251,12 +263,14 @@ interface WorkspaceState {
   undoLast: () => void;
   clear: () => void;
   exportCsv: (fileName?: string) => void;
+  exportXlsx: (fileName?: string) => Promise<void>;
   exportAnomalyReport: (fileName?: string) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceState | null>(null);
 
-const MAX_FILE_SIZE = 300 * 1024 * 1024;
+const FILE_SIZE_WARNING_THRESHOLD = 5 * 1024 * 1024;
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const PREVIEW_LIMIT = 100;
 const UNDO_LIMIT = 5;
 const MISSING_TEXT = new Set(["", "n/a", "na", "null", "none", "-"]);
@@ -265,6 +279,13 @@ const NO_PRIMARY_KEY = "__none__";
 const REMOVE_EMPTY_COLUMNS_PREF_KEY = "super-cleaner.remove-empty-columns-on-import";
 const BOOLEAN_DISPLAY_FORMAT_PREF_KEY = "super-cleaner.boolean-display-format";
 const NORMALIZED_SPACE_REGEX = /[\u00A0\u1680\u2000-\u200B\u202F\u205F\u2060\u3000]/g;
+
+function waitForNextPaint() {
+  if (typeof window === "undefined") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
 
 function readStoredBooleanPreference(key: string, fallback: boolean) {
   if (typeof window === "undefined") return fallback;
@@ -293,6 +314,15 @@ function persistBooleanPreference(key: string, value: boolean) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, String(value));
+  } catch {
+    // Ignore storage failures and keep the in-memory preference.
+  }
+}
+
+function clearStoredPreference(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
   } catch {
     // Ignore storage failures and keep the in-memory preference.
   }
@@ -824,8 +854,8 @@ function formatType(type: ColumnType, customTypes: CustomColumnTypeDefinition[] 
   const labels: Record<BuiltinColumnType, string> = {
     text: "Texte",
     integer: "Entier",
-    decimal: "Decimal",
-    boolean: "Booleen",
+    decimal: "Décimal",
+    boolean: "Booléen",
     date: "Date",
     datetime: "Date/heure",
     null: "Null",
@@ -970,14 +1000,30 @@ function buildDerivedCsvName(fileName: string, suffix: string) {
   return `${baseName}${suffix}`;
 }
 
-function analyzeDataset(
+function getImportCompletionMessage(fileSize: number) {
+  if (fileSize > FILE_SIZE_WARNING_THRESHOLD) {
+    return translateGlobal("workspace.engine.status.largeFileWarning");
+  }
+  return translateGlobal("workspace.engine.status.ready");
+}
+
+export function datasetToSheetRows(dataset: Dataset, columnNameOverrides: ColumnNameOverrides) {
+  return [
+    dataset.headers.map((header) => getColumnDisplayName(header, columnNameOverrides)),
+    ...dataset.rows.map((row) => dataset.headers.map((header) => row[header] ?? "")),
+  ];
+}
+
+export function analyzeDataset(
   dataset: Dataset,
   selectedPrimaryKey: string | null,
+  columnNameOverrides: ColumnNameOverrides,
   typeOverrides: Partial<Record<string, ColumnType>>,
   customTypes: CustomColumnTypeDefinition[],
   spreadTracking: Partial<Record<string, boolean>>,
   spreadBounds: Partial<Record<string, NumericBoundsOverride>>,
   nullTracking: Partial<Record<string, boolean>>,
+  positiveTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
   booleanDisplayFormat: BooleanDisplayFormat,
@@ -1020,6 +1066,7 @@ function analyzeDataset(
     const incompatibleRows = new Set<number>();
     const numericValues: Array<{ value: number; rowIndex: number }> = [];
     const trackNulls = nullTracking[header] ?? true;
+    const positiveOnly = positiveTracking[header] ?? false;
 
     values.forEach((value, rowIndex) => {
       if (isMissingValue(value)) {
@@ -1043,7 +1090,10 @@ function analyzeDataset(
     const majorityType = typeOverrides[header] ?? inferredType;
 
     const incompatibleSamples: string[] = [];
+    let integerAutoCorrectableCount = 0;
+    let negativeValueCount = 0;
     let nonCanonicalBooleanCount = 0;
+    let booleanDisplayMismatchCount = 0;
     let nonCanonicalDateCount = 0;
     let autoCorrectableDateCount = 0;
     let nonPreferredDecimalCount = 0;
@@ -1058,18 +1108,28 @@ function analyzeDataset(
             header,
             rowIndex,
             decimalSeparator === "dot"
-              ? "Separateur decimal inattendu. Forme attendue avec un point."
-              : "Separateur decimal inattendu. Forme attendue avec une virgule.",
+              ? "Séparateur décimal inattendu. Forme attendue avec un point."
+              : "Séparateur décimal inattendu. Forme attendue avec une virgule.",
           );
+        }
+        if ((majorityType === "integer" || majorityType === "decimal") && positiveOnly) {
+          const numeric = parseNumeric(value);
+          if (numeric != null && numeric < 0) {
+            negativeValueCount += 1;
+            warningCells.set(header, (warningCells.get(header) ?? new Set<number>()).add(rowIndex));
+            appendCellReason(header, rowIndex, "positive-only");
+            appendCellMessage(header, rowIndex, "Valeur négative alors que la colonne est réglée sur positifs uniquement.");
+          }
         }
         if (majorityType === "boolean") {
           const normalizedBoolean = normalizeBooleanValue(value);
           const expectedDisplay = formatBooleanValue(value, booleanDisplayFormat);
           if (normalizedBoolean != null && value.trim().toLowerCase() !== expectedDisplay.toLowerCase()) {
             nonCanonicalBooleanCount += 1;
+            booleanDisplayMismatchCount += 1;
             warningCells.set(header, (warningCells.get(header) ?? new Set<number>()).add(rowIndex));
             appendCellReason(header, rowIndex, "boolean-normalize");
-            appendCellMessage(header, rowIndex, `Valeur booleenne non normalisee. Forme proposee: ${expectedDisplay}.`);
+            appendCellMessage(header, rowIndex, `Valeur booléenne non normalisée. Forme proposée : ${expectedDisplay}.`);
           }
         }
         if (majorityType === "date" || majorityType === "datetime") {
@@ -1079,20 +1139,26 @@ function analyzeDataset(
             autoCorrectableDateCount += 1;
             warningCells.set(header, (warningCells.get(header) ?? new Set<number>()).add(rowIndex));
             appendCellReason(header, rowIndex, "date-normalize");
-            appendCellMessage(header, rowIndex, `Date non normalisee. Forme proposee: ${normalizedDate.canonical}.`);
+            appendCellMessage(header, rowIndex, `Date non normalisée. Forme proposée : ${normalizedDate.canonical}.`);
           } else if (!normalizedDate && looksLikeDateValue(value)) {
             nonCanonicalDateCount += 1;
             invalidCells.set(header, (invalidCells.get(header) ?? new Set<number>()).add(rowIndex));
             columnIssues.set(header, (columnIssues.get(header) ?? new Set()).add("type"));
             appendCellReason(header, rowIndex, "type");
-            appendCellMessage(header, rowIndex, "Date detectee mais invalide ou ambigue. Correction automatique impossible.");
+            appendCellMessage(header, rowIndex, "Date détectée mais invalide ou ambiguë. Correction automatique impossible.");
           }
         }
       } else {
         incompatibleRows.add(rowIndex);
         appendCellReason(header, rowIndex, "type");
+        if (majorityType === "integer") {
+          const numeric = parseNumeric(value);
+          if (numeric != null && !Number.isInteger(numeric)) {
+            integerAutoCorrectableCount += 1;
+          }
+        }
         if ((majorityType === "date" || majorityType === "datetime") && looksLikeDateValue(value)) {
-          appendCellMessage(header, rowIndex, "Date detectee mais invalide ou ambigue. Correction automatique impossible.");
+          appendCellMessage(header, rowIndex, "Date détectée mais invalide ou ambiguë. Correction automatique impossible.");
         } else {
           appendCellMessage(
             header,
@@ -1171,14 +1237,18 @@ function analyzeDataset(
 
     columns.push({
       key: header,
-      name: header,
+      name: columnNameOverrides[header]?.trim() || header,
       type: majorityType,
       inferredType,
       isTypeOverridden: typeOverrides[header] != null,
       trackSpread,
       trackNulls,
+      positiveOnly,
       compatibilityRate,
       incompatibleCount: incompatibleRows.size,
+      integerAutoCorrectableCount: majorityType === "integer" ? integerAutoCorrectableCount : undefined,
+      negativeValueCount:
+        majorityType === "integer" || majorityType === "decimal" ? negativeValueCount : undefined,
       incompatibleSamples,
       missingCount,
       missingRate,
@@ -1191,6 +1261,7 @@ function analyzeDataset(
       isEmpty,
       choiceOptions: isChoiceType(majorityType) ? (findChoiceType(majorityType, customTypes)?.options ?? []) : undefined,
       nonCanonicalBooleanCount: majorityType === "boolean" ? nonCanonicalBooleanCount : undefined,
+      booleanDisplayMismatchCount: majorityType === "boolean" ? booleanDisplayMismatchCount : undefined,
       nonCanonicalDateCount: majorityType === "date" || majorityType === "datetime" ? nonCanonicalDateCount : undefined,
       autoCorrectableDateCount: majorityType === "date" || majorityType === "datetime" ? autoCorrectableDateCount : undefined,
       nonPreferredDecimalCount:
@@ -1268,6 +1339,24 @@ function analyzeDataset(
         severity: "warning",
         columnKey: column.key,
         actions: [
+          ...((column.type === "integer" && (column.integerAutoCorrectableCount ?? 0) > 0)
+            ? [
+                {
+                  id: createOperationId(),
+                  kind: "round-incompatible-integers" as const,
+                  label: translateGlobal("workspace.engine.issues.incompatible.actions.round.label"),
+                  description: translateGlobal("workspace.engine.issues.incompatible.actions.round.description"),
+                  columnKey: column.key,
+                },
+                {
+                  id: createOperationId(),
+                  kind: "truncate-incompatible-integers" as const,
+                  label: translateGlobal("workspace.engine.issues.incompatible.actions.truncate.label"),
+                  description: translateGlobal("workspace.engine.issues.incompatible.actions.truncate.description"),
+                  columnKey: column.key,
+                },
+              ]
+            : []),
           {
             id: createOperationId(),
             kind: "nullify-incompatible",
@@ -1305,12 +1394,12 @@ function analyzeDataset(
       });
     }
 
-    if ((column.nonCanonicalBooleanCount ?? 0) > 0) {
+    if ((column.booleanDisplayMismatchCount ?? 0) > 0) {
       issues.push({
         id: `normalize-bool-${column.key}`,
         title: translateGlobal("workspace.engine.issues.booleanNormalize.title", { column: column.name }),
         description: translateGlobal("workspace.engine.issues.booleanNormalize.description", {
-          count: column.nonCanonicalBooleanCount ?? 0,
+          count: column.booleanDisplayMismatchCount ?? 0,
           format: getBooleanDisplayFormatLabel(booleanDisplayFormat),
         }),
         severity: "info",
@@ -1371,12 +1460,12 @@ function analyzeDataset(
       });
     }
 
-    if (column.type === "boolean" && (column.nonCanonicalBooleanCount ?? 0) > 0) {
+    if (column.type === "boolean" && (column.booleanDisplayMismatchCount ?? 0) > 0) {
       issues.push({
         id: `boolean-normalization-${column.key}`,
         title: translateGlobal("workspace.engine.issues.booleanNormalize.title", { column: column.name }),
         description: translateGlobal("workspace.engine.issues.booleanNormalize.description", {
-          count: column.nonCanonicalBooleanCount ?? 0,
+          count: column.booleanDisplayMismatchCount ?? 0,
           format: getBooleanDisplayFormatLabel(booleanDisplayFormat),
         }),
         severity: "info",
@@ -1505,7 +1594,7 @@ function analyzeDataset(
   };
 }
 
-function executeOperation(
+export function executeOperation(
   dataset: Dataset,
   analysis: AnalysisSummary,
   operation: CleaningOperation,
@@ -1690,6 +1779,42 @@ function executeOperation(
         },
       };
     }
+    case "round-incompatible-integers":
+    case "truncate-incompatible-integers": {
+      if (!operation.columnKey) return { dataset, impact: baseImpact };
+      const column = analysis.columns.find((entry) => entry.key === operation.columnKey);
+      if (!column || column.type !== "integer") return { dataset, impact: baseImpact };
+      let changedValues = 0;
+      const beforeSample: string[] = [];
+      const afterSample: string[] = [];
+      const nextRows = rows.map((row) => {
+        const value = row[operation.columnKey!] ?? "";
+        const numeric = parseNumeric(value);
+        if (numeric == null || Number.isInteger(numeric)) {
+          return row;
+        }
+        const nextValue =
+          operation.kind === "round-incompatible-integers" ? String(Math.round(numeric)) : String(Math.trunc(numeric));
+        changedValues += 1;
+        if (beforeSample.length < 3) {
+          beforeSample.push(value);
+          afterSample.push(nextValue);
+        }
+        return { ...row, [operation.columnKey!]: nextValue };
+      });
+      return {
+        dataset: { headers, rows: nextRows },
+        impact: {
+          ...baseImpact,
+          affectedRows: changedValues,
+          affectedCells: changedValues,
+          changedValues,
+          destructive: false,
+          beforeSample,
+          afterSample,
+        },
+      };
+    }
     case "filter-incompatible-rows": {
       if (!operation.columnKey) return { dataset, impact: baseImpact };
       const column = analysis.columns.find((entry) => entry.key === operation.columnKey);
@@ -1846,11 +1971,13 @@ function deriveDataset(
   baseDataset: Dataset,
   operations: CleaningOperation[],
   selectedPrimaryKey: string | null,
+  columnNameOverrides: ColumnNameOverrides,
   typeOverrides: Partial<Record<string, ColumnType>>,
   customTypes: CustomColumnTypeDefinition[],
   spreadTracking: Partial<Record<string, boolean>>,
   spreadBounds: Partial<Record<string, NumericBoundsOverride>>,
   nullTracking: Partial<Record<string, boolean>>,
+  positiveTracking: Partial<Record<string, boolean>>,
   dateFormat: DateFormat,
   decimalSeparator: DecimalSeparator,
   booleanDisplayFormat: BooleanDisplayFormat,
@@ -1860,11 +1987,13 @@ function deriveDataset(
   let currentAnalysis = analyzeDataset(
     currentDataset,
     selectedPrimaryKey,
+    columnNameOverrides,
     typeOverrides,
     customTypes,
     spreadTracking,
     spreadBounds,
     nullTracking,
+    positiveTracking,
     dateFormat,
     decimalSeparator,
     booleanDisplayFormat,
@@ -1882,11 +2011,13 @@ function deriveDataset(
     currentAnalysis = analyzeDataset(
       currentDataset,
       selectedPrimaryKey,
+      columnNameOverrides,
       typeOverrides,
       customTypes,
       spreadTracking,
       spreadBounds,
       nullTracking,
+      positiveTracking,
       dateFormat,
       decimalSeparator,
       booleanDisplayFormat,
@@ -1913,6 +2044,27 @@ function datasetToCsv(dataset: Dataset, separator: string) {
 
   return [
     dataset.headers.map(encodeCell).join(separator),
+    ...dataset.rows.map((row) => dataset.headers.map((header) => encodeCell(row[header] ?? "")).join(separator)),
+  ].join("\r\n");
+}
+
+function getColumnDisplayName(header: string, columnNameOverrides: ColumnNameOverrides) {
+  return columnNameOverrides[header]?.trim() || header;
+}
+
+function datasetToCsvWithColumnNames(dataset: Dataset, separator: string, columnNameOverrides: ColumnNameOverrides) {
+  const encodeCell = (value: string) => {
+    if (value.includes('"')) {
+      value = value.replace(/"/g, '""');
+    }
+    if (value.includes(separator) || value.includes("\n") || value.includes("\r") || value.includes('"')) {
+      return `"${value}"`;
+    }
+    return value;
+  };
+
+  return [
+    dataset.headers.map((header) => encodeCell(getColumnDisplayName(header, columnNameOverrides))).join(separator),
     ...dataset.rows.map((row) => dataset.headers.map((header) => encodeCell(row[header] ?? "")).join(separator)),
   ].join("\r\n");
 }
@@ -1991,16 +2143,19 @@ function removeEmptyColumnsFromDataset(dataset: Dataset, analysis: AnalysisSumma
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<WorkspaceState["status"]>("idle");
+  const [busyTaskCount, setBusyTaskCount] = useState(0);
   const [message, setMessage] = useState("Importez un CSV pour lancer l'analyse locale.");
   const [progress, setProgress] = useState(0);
   const [source, setSource] = useState<ImportSummary | null>(null);
   const [committedDataset, setCommittedDataset] = useState<Dataset | null>(null);
   const [undoableOperations, setUndoableOperations] = useState<CleaningOperation[]>([]);
   const [selectedPrimaryKey, setSelectedPrimaryKey] = useState<string | null>(null);
+  const [columnNameOverrides, setColumnNameOverrides] = useState<ColumnNameOverrides>({});
   const [columnTypeOverrides, setColumnTypeOverrides] = useState<Partial<Record<string, ColumnType>>>({});
   const [columnSpreadTracking, setColumnSpreadTrackingState] = useState<Partial<Record<string, boolean>>>({});
   const [columnSpreadBounds, setColumnSpreadBoundsState] = useState<Partial<Record<string, NumericBoundsOverride>>>({});
   const [columnNullTracking, setColumnNullTrackingState] = useState<Partial<Record<string, boolean>>>({});
+  const [columnPositiveTracking, setColumnPositiveTrackingState] = useState<Partial<Record<string, boolean>>>({});
   const [dateFormat, setDateFormat] = useState<DateFormat>("yyyy-mm-dd");
   const [decimalSeparator, setDecimalSeparator] = useState<DecimalSeparator>("both");
   const [booleanDisplayFormat, setBooleanDisplayFormatState] = useState<BooleanDisplayFormat>(() =>
@@ -2036,11 +2191,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       committedDataset,
         undoableOperations,
         selectedPrimaryKey,
+        columnNameOverrides,
         columnTypeOverrides,
         customTypes,
         columnSpreadTracking,
         columnSpreadBounds,
         columnNullTracking,
+        columnPositiveTracking,
         dateFormat,
         decimalSeparator,
         booleanDisplayFormat,
@@ -2048,7 +2205,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       );
   lastDerivedRef.current = result;
   return result;
-  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, dateFormat, decimalSeparator, booleanDisplayFormat, previewPage]);
+  }, [committedDataset, undoableOperations, selectedPrimaryKey, columnNameOverrides, columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, columnPositiveTracking, dateFormat, decimalSeparator, booleanDisplayFormat, previewPage]);
 
   useEffect(() => {
     if (!derived) return;
@@ -2066,10 +2223,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setCommittedDataset(null);
     setUndoableOperations([]);
     setSelectedPrimaryKey(null);
+    setColumnNameOverrides({});
     setColumnTypeOverrides({});
     setColumnSpreadTrackingState({});
     setColumnSpreadBoundsState({});
     setColumnNullTrackingState({});
+    setColumnPositiveTrackingState({});
     setDecimalSeparator("both");
     setBooleanDisplayFormatState("true-false");
     setPreviewPageState(0);
@@ -2098,7 +2257,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       dataset,
       null,
       {},
+      {},
       customTypes,
+      {},
       {},
       {},
       {},
@@ -2113,15 +2274,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const analysis =
       nextDataset === dataset
         ? initialAnalysis
-        : analyzeDataset(nextDataset, null, {}, customTypes, {}, {}, {}, dateFormat, decimalSeparator, booleanDisplayFormat);
+        : analyzeDataset(nextDataset, null, {}, {}, customTypes, {}, {}, {}, {}, dateFormat, decimalSeparator, booleanDisplayFormat);
     setCommittedDataset(nextDataset);
     setRemovedEmptyColumns(removedColumnsOnImport);
     setUndoableOperations([]);
     setSelectedPrimaryKey(analysis.selectedPrimaryKey);
+    setColumnNameOverrides({});
     setColumnTypeOverrides({});
     setColumnSpreadTrackingState({});
     setColumnSpreadBoundsState({});
     setColumnNullTrackingState({});
+    setColumnPositiveTrackingState({});
     setPreviewPageState(0);
     setPendingSheetNames([]);
     pendingImportSheetsRef.current = null;
@@ -2129,7 +2292,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSource(meta);
     setStatus("ready");
     setProgress(100);
-    setMessage(translateGlobal("workspace.engine.status.ready"));
+    setMessage(getImportCompletionMessage(meta.fileSize));
   }, [booleanDisplayFormat, customTypes, dateFormat, decimalSeparator, removeEmptyColumnsOnImport]);
 
   const hydrateFromText = useCallback(async (text: string, meta: Omit<ImportSummary, "separator" | "format">) => {
@@ -2261,6 +2424,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMessage(translateGlobal("workspace.engine.status.idle"));
   }, []);
 
+  const beginBusyTask = useCallback(() => {
+    setBusyTaskCount((current) => current + 1);
+  }, []);
+
+  const endBusyTask = useCallback(() => {
+    setBusyTaskCount((current) => Math.max(0, current - 1));
+  }, []);
+
   const loadDemo = useCallback(async () => {
     try {
       const response = await fetch(withBase("super-cleaner-demo.csv"), { cache: "no-store" });
@@ -2288,11 +2459,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const baseAnalysis = analyzeDataset(
         baseDataset,
         primaryKey,
+        columnNameOverrides,
         columnTypeOverrides,
         customTypes,
         columnSpreadTracking,
         columnSpreadBounds,
         columnNullTracking,
+        columnPositiveTracking,
         dateFormat,
         decimalSeparator,
         booleanDisplayFormat,
@@ -2301,7 +2474,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const nextBase = executeOperation(baseDataset, baseAnalysis, oldest, customTypes, booleanDisplayFormat).dataset;
       return { baseDataset: nextBase, operations: rest };
     },
-    [columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, dateFormat, decimalSeparator, previewPage],
+    [columnNameOverrides, columnTypeOverrides, customTypes, columnSpreadTracking, columnSpreadBounds, columnNullTracking, columnPositiveTracking, dateFormat, decimalSeparator, previewPage],
   );
 
   const buildPreview = useCallback(
@@ -2315,13 +2488,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const applyOperation = useCallback(
     (operation: CleaningOperation) => {
       if (!committedDataset || !derived) return;
-      const folded = foldOldestOperation(committedDataset, undoableOperations, selectedPrimaryKey);
-      setCommittedDataset(folded.baseDataset);
-      setUndoableOperations([...folded.operations, operation]);
-      setMessage(translateGlobal("workspace.engine.status.operationApplied", { label: operation.label }));
-      setStatus("ready");
+      beginBusyTask();
+      void (async () => {
+        await waitForNextPaint();
+        try {
+          const folded = foldOldestOperation(committedDataset, undoableOperations, selectedPrimaryKey);
+          setCommittedDataset(folded.baseDataset);
+          setUndoableOperations([...folded.operations, operation]);
+          setMessage(translateGlobal("workspace.engine.status.operationApplied", { label: operation.label }));
+          setStatus("ready");
+        } finally {
+          endBusyTask();
+        }
+      })();
     },
-    [committedDataset, derived, foldOldestOperation, selectedPrimaryKey, undoableOperations],
+    [beginBusyTask, committedDataset, derived, endBusyTask, foldOldestOperation, selectedPrimaryKey, undoableOperations],
   );
 
   const undoLast = useCallback(() => {
@@ -2332,7 +2513,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const exportCsv = useCallback(
     (fileName?: string) => {
       if (!derived || !source) return;
-      const csv = datasetToCsv(derived.dataset, source.separator);
+      const csv = datasetToCsvWithColumnNames(derived.dataset, source.separator, columnNameOverrides);
       const blob = new Blob([UTF8_BOM, csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -2342,7 +2523,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       URL.revokeObjectURL(url);
       setMessage(translateGlobal("workspace.engine.status.csvExported"));
     },
-    [derived, source],
+    [columnNameOverrides, derived, source],
+  );
+
+  const exportXlsx = useCallback(
+    async (fileName?: string) => {
+      if (!derived || !source) return;
+      beginBusyTask();
+      try {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(datasetToSheetRows(derived.dataset, columnNameOverrides));
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+        XLSX.writeFile(workbook, fileName?.trim() || buildDerivedCsvName(source.fileName, ".clean.xlsx"));
+        setMessage(translateGlobal("workspace.engine.status.xlsxExported"));
+      } finally {
+        endBusyTask();
+      }
+    },
+    [beginBusyTask, columnNameOverrides, derived, endBusyTask, source],
   );
 
   const exportAnomalyReport = useCallback(
@@ -2360,7 +2559,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         customTypes,
         removedEmptyColumns,
       );
-      const csv = datasetToCsv(reportDataset, source.separator);
+      const csv = datasetToCsvWithColumnNames(reportDataset, source.separator, columnNameOverrides);
       const blob = new Blob([UTF8_BOM, csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -2371,7 +2570,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       URL.revokeObjectURL(url);
       setMessage(translateGlobal("workspace.engine.status.reportExported"));
     },
-    [customTypes, derived, removedEmptyColumns, source],
+    [columnNameOverrides, customTypes, derived, removedEmptyColumns, source],
+  );
+
+  const setColumnName = useCallback(
+    (key: string, name: string) => {
+      if (!derived) return;
+
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        setMessage(translateGlobal("workspace.engine.errors.columnRenameEmpty"));
+        return;
+      }
+
+      const duplicate = derived.analysis.columns.some(
+        (column) => column.key !== key && column.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+      );
+      if (duplicate) {
+        setMessage(translateGlobal("workspace.engine.errors.columnRenameDuplicate"));
+        return;
+      }
+
+      setColumnNameOverrides((current) => {
+        if (trimmedName === key) {
+          const { [key]: _, ...rest } = current;
+          return rest;
+        }
+        return { ...current, [key]: trimmedName };
+      });
+      setMessage(translateGlobal("workspace.engine.status.columnRenamed", { key: trimmedName }));
+    },
+    [derived],
   );
 
   const setColumnType = useCallback((key: string, type: ColumnType) => {
@@ -2412,6 +2641,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMessage(translateGlobal(enabled ? "workspace.engine.status.nullEnabled" : "workspace.engine.status.nullDisabled", { key }));
   }, []);
 
+  const setColumnPositiveTracking = useCallback((key: string, enabled: boolean) => {
+    setColumnPositiveTrackingState((current) => ({ ...current, [key]: enabled }));
+    setMessage(
+      translateGlobal(
+        enabled ? "workspace.engine.status.positiveOnlyEnabled" : "workspace.engine.status.positiveOnlyDisabled",
+        { key },
+      ),
+    );
+  }, []);
+
   const setRemoveEmptyColumnsOnImport = useCallback((enabled: boolean) => {
     setRemoveEmptyColumnsOnImportState(enabled);
     setMessage(
@@ -2428,9 +2667,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMessage(translateGlobal("workspace.engine.status.booleanDisplayUpdated"));
   }, []);
 
-  const setPreviewPage = useCallback((page: number) => {
-    setPreviewPageState(Math.max(0, Math.floor(page)));
+  const resetPreferences = useCallback(() => {
+    clearStoredPreference(REMOVE_EMPTY_COLUMNS_PREF_KEY);
+    clearStoredPreference(BOOLEAN_DISPLAY_FORMAT_PREF_KEY);
+    setDateFormat("yyyy-mm-dd");
+    setDecimalSeparator("both");
+    setBooleanDisplayFormatState("true-false");
+    setRemoveEmptyColumnsOnImportState(true);
+    setMessage(translateGlobal("settings.privacy.clearPreferences"));
   }, []);
+
+  const setPreviewPage = useCallback((page: number) => {
+    beginBusyTask();
+    void (async () => {
+      await waitForNextPaint();
+      try {
+        setPreviewPageState(Math.max(0, Math.floor(page)));
+        await waitForNextPaint();
+      } finally {
+        endBusyTask();
+      }
+    })();
+  }, [beginBusyTask, endBusyTask]);
 
   const createChoiceType = useCallback((name: string, options: string[]) => {
     const trimmedName = name.trim();
@@ -2513,6 +2771,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WorkspaceState>(
     () => ({
       status,
+      isBusy: busyTaskCount > 0,
       message,
       progress,
       source,
@@ -2532,14 +2791,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       cancelImportSheetSelection,
       loadDemo,
       selectPrimaryKey: (key) => setSelectedPrimaryKey(key ?? NO_PRIMARY_KEY),
+      setColumnName,
       setColumnType,
       setColumnSpreadTracking,
       setColumnSpreadBounds,
       setColumnNullTracking,
+      setColumnPositiveTracking,
       setDateFormat,
       setDecimalSeparator,
       setBooleanDisplayFormat,
       setRemoveEmptyColumnsOnImport,
+      resetPreferences,
       setPreviewPage,
       createChoiceType,
       createStructuredStringType,
@@ -2548,10 +2810,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       undoLast,
       clear: resetWorkspace,
       exportCsv,
+      exportXlsx,
       exportAnomalyReport,
     }),
     [
       status,
+      busyTaskCount,
       message,
       progress,
       source,
@@ -2568,14 +2832,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectImportSheet,
       cancelImportSheetSelection,
       loadDemo,
+      setColumnName,
       setColumnType,
       setColumnSpreadTracking,
       setColumnSpreadBounds,
       setColumnNullTracking,
+      setColumnPositiveTracking,
       setDateFormat,
       setDecimalSeparator,
       setBooleanDisplayFormat,
       setRemoveEmptyColumnsOnImport,
+      resetPreferences,
       setPreviewPage,
       createChoiceType,
       createStructuredStringType,
@@ -2584,6 +2851,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       undoLast,
       resetWorkspace,
       exportCsv,
+      exportXlsx,
       exportAnomalyReport,
     ],
   );

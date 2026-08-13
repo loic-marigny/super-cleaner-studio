@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
-
-const BASE_URL = "";
+import { buildSiteUrl } from "@/lib/site-url";
 
 interface SitemapEntry {
   path: string;
@@ -15,15 +14,17 @@ export const Route = createFileRoute("/sitemap.xml")({
       GET: async () => {
         const entries: SitemapEntry[] = [
           { path: "/", changefreq: "weekly", priority: "1.0" },
-          { path: "/workspace", changefreq: "weekly", priority: "0.8" },
-          { path: "/settings", changefreq: "monthly", priority: "0.4" },
           { path: "/about", changefreq: "monthly", priority: "0.5" },
         ];
         const urls = entries
           .map(
-            (e) =>
-              `  <url>\n    <loc>${BASE_URL}${e.path}</loc>\n    <changefreq>${e.changefreq}</changefreq>\n    <priority>${e.priority}</priority>\n  </url>`,
+            (e) => {
+              const absoluteUrl = buildSiteUrl(e.path);
+              if (!absoluteUrl) return null;
+              return `  <url>\n    <loc>${absoluteUrl}</loc>\n    <changefreq>${e.changefreq}</changefreq>\n    <priority>${e.priority}</priority>\n  </url>`;
+            },
           )
+          .filter((entry): entry is string => entry != null)
           .join("\n");
         const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
         return new Response(xml, {

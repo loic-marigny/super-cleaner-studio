@@ -25,12 +25,33 @@ function resolveBasePath() {
   return `/${repository}/`;
 }
 
+function resolveSiteUrl(basePath) {
+  const explicit = process.env.SITE_URL || process.env.VITE_SITE_URL;
+  if (explicit) {
+    return explicit.replace(/\/+$/, "");
+  }
+
+  const repositoryRef = process.env.GITHUB_REPOSITORY;
+  if (!repositoryRef) {
+    return "";
+  }
+
+  const [owner] = repositoryRef.split("/");
+  if (!owner) {
+    return "";
+  }
+
+  const origin = `https://${owner}.github.io`;
+  return basePath === "/" ? origin : `${origin}${basePath.replace(/\/$/, "")}`;
+}
+
 const basePath = resolveBasePath();
+const siteUrl = resolveSiteUrl(basePath);
 const viteBin = join(process.cwd(), "node_modules", "vite", "bin", "vite.js");
 
 const buildResult = spawnSync(process.execPath, [viteBin, "build", `--base=${basePath}`], {
   stdio: "inherit",
-  env: process.env,
+  env: { ...process.env, VITE_SITE_URL: process.env.VITE_SITE_URL || siteUrl },
 });
 
 if (buildResult.error) {
@@ -71,10 +92,28 @@ if (!response.ok) {
 }
 
 const html = await response.text();
+const sitemapEntries = [
+  { path: "/", changefreq: "weekly", priority: "1.0" },
+  { path: "/about", changefreq: "monthly", priority: "0.5" },
+];
+const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${siteUrl
+  ? sitemapEntries
+      .map(({ path, changefreq, priority }) => {
+        const url = new URL(path.replace(/^\//, ""), `${siteUrl}/`).toString();
+        return `  <url>\n    <loc>${url}</loc>\n    <changefreq>${changefreq}</changefreq>\n    <priority>${priority}</priority>\n  </url>`;
+      })
+      .join("\n")
+  : ""}\n</urlset>`;
 
 mkdirSync(outputDir, { recursive: true });
 writeFileSync(indexFile, html, "utf8");
 copyFileSync(indexFile, notFoundFile);
+writeFileSync(join(outputDir, "sitemap.xml"), sitemapXml, "utf8");
+writeFileSync(
+  join(outputDir, "robots.txt"),
+  `User-agent: *\nAllow: /\n${siteUrl ? `Sitemap: ${siteUrl}/sitemap.xml\n` : ""}`,
+  "utf8",
+);
 writeFileSync(noJekyllFile, "");
 
 console.log(`GitHub Pages bundle prepared in ${outputDir} with base path ${basePath}`);

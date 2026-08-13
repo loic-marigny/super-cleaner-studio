@@ -1,21 +1,28 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, EyeOff, FileText, ShieldCheck, Zap } from "lucide-react";
+import { ArrowRight, FileText } from "lucide-react";
 import { FileDrop } from "@/components/sp/FileDrop";
 import { Logo } from "@/components/sp/Logo";
 import { SpButton } from "@/components/sp/Button";
 import { translateGlobal, useI18n } from "@/lib/i18n";
+import { buildSiteUrl } from "@/lib/site-url";
 import { useWorkspace } from "@/lib/workspace";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
+  head: () => {
+    const canonical = buildSiteUrl("/");
+
+    return {
+      meta: [
       { title: translateGlobal("landing.meta.title") },
       {
         name: "description",
         content: translateGlobal("landing.meta.description"),
       },
+      ...(canonical ? [{ property: "og:url", content: canonical }] : []),
     ],
-  }),
+      links: canonical ? [{ rel: "canonical", href: canonical }] : [],
+    };
+  },
   component: LandingPage,
 });
 
@@ -66,12 +73,6 @@ function LandingPage() {
           <StepCard n={3} title={t("landing.steps.exportTitle")} text={t("landing.steps.exportText")} />
         </div>
 
-        <div className="mt-12 grid gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-raised)]/70 p-4 sm:grid-cols-3">
-          <TrustItem icon={<ShieldCheck className="h-4 w-4" />} label={t("landing.trust.noAccountLabel")} text={t("landing.trust.noAccountText")} />
-          <TrustItem icon={<EyeOff className="h-4 w-4" />} label={t("landing.trust.noStorageLabel")} text={t("landing.trust.noStorageText")} />
-          <TrustItem icon={<Zap className="h-4 w-4" />} label={t("landing.trust.instantExportLabel")} text={t("landing.trust.instantExportText")} />
-        </div>
-
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <SpButton
             variant="secondary"
@@ -109,20 +110,6 @@ function StepCard({ n, title, text }: { n: number; title: string; text: string }
         <h3 className="text-sm font-semibold text-[var(--color-brown-dark)]">{title}</h3>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-brown)]">{text}</p>
-    </div>
-  );
-}
-
-function TrustItem({ icon, label, text }: { icon: React.ReactNode; label: string; text: string }) {
-  return (
-    <div className="flex items-start gap-2.5 px-2 py-1">
-      <span className="mt-0.5 grid h-7 w-7 place-items-center rounded-md bg-[var(--color-secondary)] text-[var(--color-brown-dark)]">
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-[var(--color-brown-dark)]">{label}</div>
-        <div className="text-[12px] text-[var(--color-brown)]">{text}</div>
-      </div>
     </div>
   );
 }

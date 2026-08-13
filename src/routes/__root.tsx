@@ -9,9 +9,11 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
 import appCss from "../styles.css?url";
+import { AppFooter } from "../components/sp/AppFooter";
 import { AppHeader } from "../components/sp/AppHeader";
 import { withBase } from "../lib/app-base";
 import { I18nProvider, translateGlobal, useI18n } from "../lib/i18n";
+import { buildSiteUrl } from "../lib/site-url";
 import { WorkspaceProvider } from "../lib/workspace";
 
 function NotFoundComponent() {
@@ -71,8 +73,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
+  head: () => {
+    const logoUrl = buildSiteUrl("/SC_LOGO.png");
+
+    return {
+      meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: translateGlobal("root.meta.title") },
@@ -87,7 +92,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content: translateGlobal("root.meta.ogDescription"),
       },
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "Super Cleaner" },
+      ...(logoUrl ? [{ property: "og:image", content: logoUrl }] : []),
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "robots", content: "index, follow, max-image-preview:large" },
       { name: "theme-color", content: "#F4F1EA" },
     ],
     links: [
@@ -100,7 +108,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap",
       },
     ],
-  }),
+    };
+  },
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -133,6 +142,7 @@ function RootComponent() {
           <main className="flex-1 flex flex-col">
             <Outlet />
           </main>
+          <AppFooter />
         </div>
       </WorkspaceProvider>
     </QueryClientProvider>
